@@ -1,4 +1,4 @@
-FROM rockylinux:8
+FROM rockylinux:9
 
 LABEL maintainer="cap-agent"
 LABEL description="Cap Agent - Zeek-based Lateral Movement Detection Probe"
@@ -7,6 +7,7 @@ ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
 
 RUN dnf install -y epel-release && \
+    dnf config-manager --set-enabled crb && \
     dnf update -y && \
     dnf install -y \
         cmake \
