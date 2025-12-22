@@ -27,12 +27,29 @@ jobs:
           context: .
           file: ./Dockerfile
           push: false
+          load: true
           tags: cap-agent:latest
           cache-from: type=gha
           cache-to: type=gha,mode=max
       
       - name: Save Docker image
         run: docker save cap-agent:latest | gzip > cap-agent-latest.tar.gz
+      
+      - name: Prepare deployment package
+        run: |
+          mkdir -p deploy-package
+          cp cap-agent-latest.tar.gz deploy-package/
+          cp -r deploy deploy-package/
+          cp README.md deploy-package/ || true
+          cp README_WEB.md deploy-package/ || true
+          tar -czf cap-agent-release.tar.gz -C deploy-package .
+      
+      - name: Upload deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: cap-agent-release-package
+          path: cap-agent-release.tar.gz
+          retention-days: 30
       
       - name: Upload Docker image artifact
         uses: actions/upload-artifact@v4
