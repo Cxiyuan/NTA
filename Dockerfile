@@ -9,6 +9,7 @@ ENV PYTHONUNBUFFERED=1
 
 # Install build dependencies and runtime tools in one layer
 RUN dnf install -y epel-release && \
+    dnf install -y 'dnf-command(config-manager)' && \
     dnf config-manager --set-enabled crb && \
     dnf update -y && \
     dnf install -y \
