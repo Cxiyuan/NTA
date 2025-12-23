@@ -27,8 +27,9 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            cmake make gcc g++ flex bison \
+            cmake make gcc g++ flex bison libfl-dev \
             libpcap-dev libssl-dev zlib1g-dev \
+            python3 python3-dev python3-pip \
             swig git wget curl tcpdump net-tools
       
       - name: Download and cache Zeek source
