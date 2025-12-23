@@ -1,3 +1,4 @@
+# Build timestamp: 2025-12-23
 FROM rockylinux:9
 
 LABEL maintainer="cap-agent"
