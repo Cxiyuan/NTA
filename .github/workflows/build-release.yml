@@ -60,6 +60,7 @@ jobs:
       
       - name: Build NTA Go binary
         run: |
+          go mod download
           go build -o nta-server -ldflags="-s -w" ./cmd/nta-server
       
       - name: Download APT dependencies
