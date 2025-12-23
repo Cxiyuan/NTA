@@ -66,7 +66,6 @@ jobs:
           mkdir -p apt-packages
           cd apt-packages
           
-          # Download runtime dependencies (not build dependencies)
           apt-get download \
             libpcap0.8 \
             libssl3 \
@@ -76,9 +75,8 @@ jobs:
             net-tools \
             libhiredis1.1.0 \
             liblua5.4-0 \
-            redis-tools
+            redis-tools || true
           
-          # Download dependencies of redis-server
           apt-cache depends redis-server | grep Depends | awk '{print $2}' | \
             xargs apt-get download 2>/dev/null || true
           
@@ -86,262 +84,23 @@ jobs:
       
       - name: Create offline install script
         run: |
-          cat > install-offline.sh <<'EOF'
-          #!/bin/bash
-          
-          set -e
-          
-          RED='\033[0;31m'
-          GREEN='\033[0;32m'
-          YELLOW='\033[1;33m'
-          NC='\033[0m'
-          
-          INSTALL_DIR="/opt/nta-probe"
-          SERVICE_USER="nta"
-
-log_info() {
-    echo -e "${GREEN}[INFO]${NC} $1"
-}
-
-log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
-}
-
-check_root() {
-    if [[ $EUID -ne 0 ]]; then
-        log_error "此脚本需要 root 权限运行"
-        exit 1
-    fi
-}
-
-check_ubuntu_24() {
-    if [ ! -f /etc/os-release ]; then
-        log_error "无法检测操作系统"
-        exit 1
-    fi
-    
-    . /etc/os-release
-    
-    if [ "$ID" != "ubuntu" ] || [ "$VERSION_ID" != "24.04" ]; then
-        log_error "仅支持 Ubuntu 24.04，当前: $ID $VERSION_ID"
-        exit 1
-    fi
-    
-    log_info "✓ 检测到 Ubuntu 24.04"
-}
-
-install_apt_packages() {
-    log_info "安装依赖包..."
-    cd apt-packages
-    dpkg -i *.deb 2>/dev/null || apt-get install -f -y
-    cd ..
-}
-
-install_zeek() {
-    log_info "安装 Zeek..."
-    tar -xzf zeek-6.0.3-ubuntu24.04-x64.tar.gz -C /opt/
-    echo 'export PATH="/opt/zeek/bin:$PATH"' > /etc/profile.d/zeek.sh
-    export PATH="/opt/zeek/bin:$PATH"
-    log_info "Zeek 安装完成"
-}
-
-create_service_user() {
-    if id "$SERVICE_USER" &>/dev/null; then
-        log_info "用户 $SERVICE_USER 已存在"
-    else
-        useradd -r -s /bin/bash -d "$INSTALL_DIR" "$SERVICE_USER"
-        log_info "创建服务用户: $SERVICE_USER"
-    fi
-}
-
-install_nta() {
-    log_info "安装 NTA 探针..."
-    
-    mkdir -p "$INSTALL_DIR"/{bin,config,zeek-scripts,logs,reports,data}
-    
-    # Copy binary
-    cp nta-server "$INSTALL_DIR/bin/"
-    chmod +x "$INSTALL_DIR/bin/nta-server"
-    
-    # Copy Zeek scripts
-    cp -r zeek-scripts/* "$INSTALL_DIR/zeek-scripts/"
-    
-    # Copy config
-    cp -r config/* "$INSTALL_DIR/config/"
-    
-    # Create default config
-    cat > "$INSTALL_DIR/config/nta.yaml" <<EOF
-server:
-  host: 0.0.0.0
-  port: 8080
-  mode: release
-
-zeek:
-  log_dir: /var/spool/zeek
-  script_dir: $INSTALL_DIR/zeek-scripts
-  interface: eth0
-
-redis:
-  addr: localhost:6379
-  password: ""
-  db: 0
-
-database:
-  type: sqlite
-  dsn: $INSTALL_DIR/data/nta.db
-
-detection:
-  scan:
-    threshold: 20
-    time_window: 300
-    min_fail_rate: 0.6
-  auth:
-    fail_threshold: 5
-    pth_window: 3600
-  ml:
-    enabled: true
-    contamination: 0.01
-
-threat_intel:
-  sources:
-    - name: threatfox
-      url: https://threatfox-api.abuse.ch/api/v1/
-      enabled: true
-  update_interval: 3600
-  local_feed_path: $INSTALL_DIR/config/threat_feed.json
-
-license:
-  license_file: $INSTALL_DIR/config/license.key
-  public_key_file: $INSTALL_DIR/config/public.pem
-EOF
-    
-    chown -R $SERVICE_USER:$SERVICE_USER "$INSTALL_DIR"
-    log_info "NTA 安装完成"
-}
-
-configure_zeek() {
-    log_info "配置 Zeek..."
-    
-    echo "@load $INSTALL_DIR/zeek-scripts/main.zeek" >> /opt/zeek/share/zeek/site/local.zeek
-    
-    default_iface=$(ip route | grep default | awk '{print $5}' | head -n1)
-    if [ -n "$default_iface" ]; then
-        log_info "配置监听接口: $default_iface"
-        sed -i "s/interface=eth0/interface=$default_iface/" /opt/zeek/etc/node.cfg
-        sed -i "s/interface: eth0/interface: $default_iface/" "$INSTALL_DIR/config/nta.yaml"
-    fi
-    
-    zeekctl deploy
-}
-
-create_systemd_services() {
-    log_info "创建 systemd 服务..."
-    
-    cat > /etc/systemd/system/nta-zeek.service <<EOF
-[Unit]
-Description=NTA Zeek Service
-After=network.target
-
-[Service]
-Type=forking
-User=root
-ExecStart=/opt/zeek/bin/zeekctl deploy
-ExecStop=/opt/zeek/bin/zeekctl stop
-ExecReload=/opt/zeek/bin/zeekctl restart
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    cat > /etc/systemd/system/nta-server.service <<EOF
-[Unit]
-Description=NTA Server
-After=network.target nta-zeek.service redis.service
-
-[Service]
-Type=simple
-User=$SERVICE_USER
-WorkingDirectory=$INSTALL_DIR
-ExecStart=$INSTALL_DIR/bin/nta-server -config $INSTALL_DIR/config/nta.yaml
-Restart=always
-RestartSec=10
-Environment="PATH=/opt/zeek/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-    systemctl daemon-reload
-}
-
-start_services() {
-    log_info "启动服务..."
-    
-    systemctl enable redis-server
-    systemctl start redis-server
-    
-    systemctl enable nta-zeek
-    systemctl start nta-zeek
-    
-    sleep 5
-    
-    systemctl enable nta-server
-    systemctl start nta-server
-}
-
-main() {
-    echo "=========================================="
-    echo "   NTA 离线安装脚本"
-    echo "   Ubuntu 24.04 x64"
-    echo "=========================================="
-    echo ""
-    
-    check_root
-    check_ubuntu_24
-    
-    read -p "是否继续安装? (y/n): " -n 1 -r
-    echo
-    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-        exit 0
-    fi
-    
-    install_apt_packages
-    install_zeek
-    create_service_user
-    install_nta
-    configure_zeek
-    create_systemd_services
-    start_services
-    
-    log_info "安装完成! 🎉"
-    echo ""
-    echo "访问地址: http://$(hostname -I | awk '{print $1}'):8080"
-    echo "健康检查: curl http://localhost:8080/health"
-}
-
-          main "$@"
-          EOF
-          
+          mkdir -p scripts
+          cp scripts/install-offline.sh.template install-offline.sh
           chmod +x install-offline.sh
       
       - name: Prepare release package
         run: |
           mkdir -p nta-release
           
-          # Copy binaries and packages
           cp nta-server nta-release/
           cp zeek-6.0.3-ubuntu24.04-x64.tar.gz nta-release/
           cp -r apt-packages nta-release/
-          
-          # Copy scripts and configs
           cp -r zeek-scripts nta-release/
           cp -r config nta-release/
           cp install-offline.sh nta-release/
           cp README.md nta-release/
           cp DEPLOYMENT.md nta-release/
           
-          # Create archive
           tar -czf nta-v4.0-ubuntu24.04-x64.tar.gz nta-release/
       
       - name: Generate checksums
