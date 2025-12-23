@@ -12,24 +12,25 @@ RUN dnf install -y \
         cmake \
         make \
         gcc \
-        gcc-c++ \
+        gcc-c++ && \
+    dnf install -y \
         flex \
         bison \
         libpcap-devel \
-        openssl-devel \
+        openssl-devel && \
+    dnf install -y \
         python3 \
         python3-pip \
-        python3-devel \
+        python3-devel && \
+    dnf install -y \
         swig \
         zlib-devel \
         git \
         wget \
         curl \
         tcpdump \
-        net-tools || { dnf clean all && dnf makecache && dnf install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3 python3-pip python3-devel swig zlib-devel git wget curl tcpdump net-tools; } && \
+        net-tools && \
     dnf clean all
-
-RUN dnf install -y jq || true
 
 # Build and install Zeek
 WORKDIR /tmp
