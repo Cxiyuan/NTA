@@ -6,7 +6,7 @@
 @load base/protocols/ssh
 @load base/protocols/dce-rpc
 @load base/protocols/ntlm
-@load base/protocols/kerberos
+@load base/protocols/krb
 
 @load ./lateral-scan
 @load ./lateral-auth
