@@ -8,9 +8,7 @@ ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
 
 # Install build dependencies and runtime tools
-RUN dnf clean all && \
-    dnf makecache --refresh && \
-    dnf install -y \
+RUN dnf install -y \
         cmake \
         make \
         gcc \
@@ -26,11 +24,12 @@ RUN dnf clean all && \
         zlib-devel \
         git \
         wget \
-        jq \
+        curl \
         tcpdump \
-        net-tools \
-        curl && \
+        net-tools || { dnf clean all && dnf makecache && dnf install -y cmake make gcc gcc-c++ flex bison libpcap-devel openssl-devel python3 python3-pip python3-devel swig zlib-devel git wget curl tcpdump net-tools; } && \
     dnf clean all
+
+RUN dnf install -y jq || true
 
 # Build and install Zeek
 WORKDIR /tmp
