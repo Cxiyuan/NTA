@@ -16,7 +16,7 @@ services:
       - ./logs:/opt/cap-agent/logs
       - ./reports:/opt/cap-agent/reports
       - ./config:/opt/cap-agent/config
-      - /var/spool/zeek:/var/spool/zeek
+      - zeek-logs:/var/spool/zeek
     
     command: all
     
@@ -52,6 +52,10 @@ services:
       timeout: 10s
       retries: 3
       start_period: 30s
+    
+    depends_on:
+      cap-agent:
+        condition: service_started
 
   cap-agent-analyzer:
     image: cap-agent:latest
@@ -66,17 +70,14 @@ services:
       - ./logs:/opt/cap-agent/logs
       - ./reports:/opt/cap-agent/reports
       - ./config:/opt/cap-agent/config
-      - /var/spool/zeek:/var/spool/zeek
+      - zeek-logs:/var/spool/zeek
     
     command: analyzer
     
     depends_on:
-      - cap-agent
+      cap-agent:
+        condition: service_started
 
 volumes:
   zeek-logs:
-    driver: local
-  cap-agent-logs:
-    driver: local
-  cap-agent-reports:
     driver: local
