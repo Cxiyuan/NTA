@@ -1,36 +1,36 @@
 # Build timestamp: 2025-12-23
-FROM rockylinux:9
+FROM ubuntu:latest
 
 LABEL maintainer="cap-agent"
 LABEL description="Cap Agent - Zeek-based Lateral Movement Detection Probe"
 
 ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
+ENV DEBIAN_FRONTEND=noninteractive
 
 # Install build dependencies and runtime tools
-RUN dnf install -y \
+RUN apt-get update && \
+    apt-get install -y \
         cmake \
         make \
         gcc \
-        gcc-c++ && \
-    dnf install -y \
+        g++ \
         flex \
         bison \
-        libpcap-devel \
-        openssl-devel && \
-    dnf install -y \
+        libpcap-dev \
+        libssl-dev \
         python3 \
         python3-pip \
-        python3-devel && \
-    dnf install -y \
+        python3-dev \
         swig \
-        zlib-devel \
+        zlib1g-dev \
         git \
         wget \
         curl \
         tcpdump \
         net-tools && \
-    dnf clean all
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 # Build and install Zeek
 WORKDIR /tmp
