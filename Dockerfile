@@ -8,9 +8,9 @@ ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
 
 # Install build dependencies and runtime tools in one layer
-RUN dnf install -y epel-release && \
-    dnf install -y dnf-plugins-core && \
+RUN dnf install -y epel-release dnf-plugins-core && \
     dnf config-manager --set-enabled crb || true && \
+    dnf makecache && \
     dnf install -y \
         cmake \
         make \
