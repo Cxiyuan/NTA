@@ -49,10 +49,10 @@ WORKDIR /opt/cap-agent
 
 # Install Python dependencies (cache layer)
 COPY requirements.txt /opt/cap-agent/
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY backend/requirements.txt /opt/cap-agent/backend-requirements.txt
-RUN pip3 install --no-cache-dir -r backend-requirements.txt
+RUN pip3 install --no-cache-dir --break-system-packages -r backend-requirements.txt
 
 # Copy application code
 COPY . /opt/cap-agent/
