@@ -8,11 +8,7 @@ ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
 
 # Install build dependencies and runtime tools in one layer
-RUN dnf install -y --setopt=tsflags=nodocs \
-        epel-release \
-        dnf-plugins-core && \
-    (dnf config-manager --set-enabled crb || dnf config-manager --set-enabled powertools || true) && \
-    dnf install -y --setopt=tsflags=nodocs \
+RUN dnf install -y \
         cmake \
         make \
         gcc \
@@ -32,8 +28,7 @@ RUN dnf install -y --setopt=tsflags=nodocs \
         tcpdump \
         net-tools \
         curl && \
-    dnf clean all && \
-    rm -rf /var/cache/dnf
+    dnf clean all
 
 # Build and install Zeek
 WORKDIR /tmp
