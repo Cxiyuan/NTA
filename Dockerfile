@@ -30,8 +30,7 @@ RUN dnf install -y epel-release && \
         tcpdump \
         net-tools \
         curl && \
-    dnf clean all && \
-    rm -rf /var/cache/dnf
+    dnf clean all
 
 # Build and install Zeek
 WORKDIR /tmp
