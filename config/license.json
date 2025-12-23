@@ -1,0 +1,17 @@
+{
+  "customer": "DEMO_CUSTOMER",
+  "product": "NTA Probe",
+  "max_probes": 10,
+  "max_bandwidth_mbps": 1000,
+  "issue_date": "2025-01-01T00:00:00",
+  "expiry_date": "2026-12-31T23:59:59",
+  "features": [
+    "asset_discovery",
+    "threat_intelligence",
+    "apt_detection",
+    "encryption_analysis",
+    "multi_probe",
+    "report_generation"
+  ],
+  "signature": "DEMO_SIGNATURE"
+}

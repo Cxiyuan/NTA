@@ -1,0 +1,10 @@
+{
+  "malicious_ips": [
+    "192.0.2.1",
+    "198.51.100.1"
+  ],
+  "malicious_domains": [
+    "malicious-example.com"
+  ],
+  "malicious_hashes": []
+}
