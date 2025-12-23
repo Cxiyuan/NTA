@@ -58,9 +58,9 @@ jobs:
           cd /opt
           sudo tar -czf $GITHUB_WORKSPACE/zeek-6.0.3-ubuntu24.04-x64.tar.gz zeek
       
-      - name: Build NTA Go binary
+      - name: Generate go.sum and build
         run: |
-          go mod download
+          go mod tidy
           go build -o nta-server -ldflags="-s -w" ./cmd/nta-server
       
       - name: Download APT dependencies
