@@ -75,57 +75,81 @@
 cap_agent/
 ├── zeek-scripts/              # Zeek检测脚本
 │   ├── main.zeek             # 主加载脚本
-│   ├── lateral-scan.zeek     # 横向扫描检测（NEW）
-│   ├── lateral-auth.zeek     # 认证异常检测（NEW）
-│   ├── lateral-exec.zeek     # 远程执行检测（NEW）
-│   ├── deep-inspection.zeek  # 深度包检测（NEW）
-│   ├── encrypted-traffic.zeek # 加密流量分析（NEW）
-│   ├── zeroday-detection.zeek # 0day检测（NEW）
-│   └── attack-chain.zeek     # 攻击链关联（NEW）
+│   ├── lateral-scan.zeek     # 横向扫描检测
+│   ├── lateral-auth.zeek     # 认证异常检测
+│   ├── lateral-exec.zeek     # 远程执行检测
+│   ├── deep-inspection.zeek  # 深度包检测
+│   ├── encrypted-traffic.zeek # 加密流量分析
+│   ├── zeroday-detection.zeek # 0day检测
+│   └── attack-chain.zeek     # 攻击链关联
 ├── analyzer/                  # Python分析引擎
 │   ├── detector.py           # 基础检测器
-│   ├── ml_detector.py        # ML异常检测（NEW）
-│   ├── graph_analyzer.py     # 图分析引擎（NEW）
-│   ├── threat_intel.py       # 威胁情报（NEW）
-│   ├── decision_engine.py    # 决策融合引擎（NEW）
-│   ├── report_generator.py   # 报告生成（NEW）
-│   ├── integrated_engine.py  # 综合分析引擎（NEW）
+│   ├── ml_detector.py        # ML异常检测
+│   ├── graph_analyzer.py     # 图分析引擎
+│   ├── threat_intel.py       # 威胁情报
+│   ├── decision_engine.py    # 决策融合引擎
+│   ├── report_generator.py   # 报告生成
+│   ├── integrated_engine.py  # 综合分析引擎
 │   └── monitor.py            # 监控工具
+├── backend/                   # Web API 后端
+│   └── app.py                # Flask API 服务
+├── web-ui/                    # Web 管理界面
 ├── config/                    # 配置文件
-│   └── detection.yaml        # 检测规则配置（ENHANCED）
-├── deploy/                    # 部署脚本
-│   ├── setup.sh              # 自动部署脚本
-│   └── start_analyzer.sh     # 启动分析引擎
+│   └── detection.yaml        # 检测规则配置
+├── deploy/                    # Docker 部署
+│   ├── deploy.sh             # 自动部署脚本
+│   └── docker-entrypoint.sh  # 容器入口脚本
+├── Dockerfile                 # Docker 镜像定义
+├── docker-compose.yml         # Docker Compose 配置
 ├── README.md                  # 项目说明（本文件）
-├── DEPLOYMENT.md             # 完整部署文档（NEW）
-└── requirements.txt          # Python依赖（NEW）
+├── DOCKER_DEPLOYMENT.md       # Docker 部署文档
+└── requirements.txt          # Python 依赖
 ```
 
-## 🚀 快速开始
+## 🚀 快速开始（Docker 部署）
 
-### 1. 一键部署
+### 1. 下载部署包
+
+从 GitHub Actions 下载 `cap-agent-release.tar.gz`
+
+### 2. 解压并部署
 
 ```bash
-cd /root/cap_agent
-sudo ./deploy/setup.sh
+# 解压部署包
+tar -xzf cap-agent-release.tar.gz
+cd cap-agent-release
+
+# 一键部署（自动检测并安装 Docker 环境）
+sudo ./deploy/deploy.sh
 ```
 
-### 2. 实时监控
+### 3. 验证服务
 
 ```bash
-# 方式1：综合分析引擎（推荐）
-python3 analyzer/integrated_engine.py --realtime
+# 查看容器状态
+docker compose ps
 
-# 方式2：查看实时日志
-tail -f /var/log/zeek/current/lateral_movement.log
+# 查看 Zeek 运行状态
+docker compose exec cap-agent zeekctl status
+
+# 访问 Web 管理界面
+# http://YOUR_IP:5000
 ```
 
-### 3. 生成报告
+### 4. 查看日志和告警
 
 ```bash
-python3 analyzer/integrated_engine.py \
-  -i /var/log/zeek/2025-12-22/conn.log \
-  -r /var/log/zeek/reports/report.html
+# 查看实时日志
+docker compose logs -f cap-agent
+
+# 进入容器查看 Zeek 日志
+docker compose exec cap-agent tail -f /var/spool/zeek/current/lateral_movement.log
+
+# 生成检测报告
+docker compose exec cap-agent-analyzer python3 \
+  /opt/cap-agent/analyzer/integrated_engine.py \
+  -i /var/spool/zeek/current/conn.log \
+  -r /opt/cap-agent/reports/report.html
 ```
 
 ## 📖 检测能力详解
@@ -158,7 +182,22 @@ python3 analyzer/integrated_engine.py \
 
 ## 🔧 配置说明
 
-主配置文件：`config/detection.yaml`
+配置文件位于容器内：`/opt/cap-agent/config/detection.yaml`
+
+可通过挂载卷修改：
+
+```bash
+# 1. 从容器复制配置到主机
+docker compose cp cap-agent:/opt/cap-agent/config/detection.yaml ./config/
+
+# 2. 编辑配置文件
+vim ./config/detection.yaml
+
+# 3. 重启服务使配置生效
+docker compose restart cap-agent-analyzer
+```
+
+配置示例：
 
 ```yaml
 detection:
@@ -226,28 +265,24 @@ decision_engine:
 
 ## 📚 完整文档
 
-详细部署和使用说明请参考：**[DEPLOYMENT.md](./DEPLOYMENT.md)**
+详细部署和使用说明请参考：**[DOCKER_DEPLOYMENT.md](./DOCKER_DEPLOYMENT.md)**
 
 包含内容：
-- 系统架构详解
-- 完整部署步骤
+- Docker 环境要求
+- 详细部署步骤
 - 配置优化指南
 - 故障排查手册
-- 最佳实践建议
 - 性能调优方法
-
-## 🎯 使用场景
-
-- ✅ 企业内网安全监控
-- ✅ APT攻击检测
-- ✅ 横向移动防御
-- ✅ 威胁狩猎
-- ✅ SOC运营支撑
-- ✅ 合规审计
+- 运维管理命令
 
 ## 📋 系统要求
 
-**硬件**：
+**Docker 环境**：
+- Docker 20.10+
+- Docker Compose 2.0+
+- 主机具有网络抓包权限
+
+**硬件要求**：
 - CPU: 8核+（推荐16核）
 - 内存: 16GB+（推荐32GB）
 - 磁盘: 500GB+
@@ -256,13 +291,8 @@ decision_engine:
 - CentOS 7/8
 - Ubuntu 18.04/20.04/22.04
 - RHEL 7/8
-
-**依赖**：
-- Zeek 5.0+
-- Python 3.7+
-- scikit-learn
-- networkx
-- matplotlib
+- Rocky Linux 8/9
+- Anolis OS 8
 
 ## 🤝 贡献
 
@@ -274,27 +304,26 @@ decision_engine:
 
 ## 📞 技术支持
 
-- 问题反馈：提交GitHub Issue
-- 文档：查看DEPLOYMENT.md
+- 问题反馈：提交 GitHub Issue
+- 文档：查看 DOCKER_DEPLOYMENT.md
 - 更新：定期关注项目更新
 
 ---
 
 **版本历史**：
-- v2.0 (2025-12-22): 
-  - ✨ 新增深度包检测（DPI）
-  - ✨ 新增加密流量分析
-  - ✨ 新增0day漏洞利用检测
-  - ✨ 新增攻击链关联分析
-  - ✨ 新增ML异常检测
-  - ✨ 新增图分析引擎
-  - ✨ 新增威胁情报集成
-  - ✨ 新增多层决策融合
-  - ✨ 新增可视化报告
-  - 🔧 完善配置管理
-  - 📚 编写完整部署文档
-
-- v1.0 (Initial): 基础横向移动检测
+- v2.0 (2025-12-23): 
+  - ✨ Docker 容器化部署
+  - ✨ 自动化部署脚本（支持多种 Linux 发行版）
+  - ✨ 完整的 Docker 部署文档
+  - ✨ 深度包检测（DPI）
+  - ✨ 加密流量分析
+  - ✨ 0day 漏洞利用检测
+  - ✨ 攻击链关联分析
+  - ✨ ML 异常检测
+  - ✨ 图分析引擎
+  - ✨ 威胁情报集成
+  - ✨ 多层决策融合
+  - ✨ 可视化报告
 
 ---
 
