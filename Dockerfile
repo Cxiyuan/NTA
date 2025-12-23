@@ -7,8 +7,10 @@ LABEL description="Cap Agent - Zeek-based Lateral Movement Detection Probe"
 ENV ZEEK_VERSION=6.0.3
 ENV PYTHONUNBUFFERED=1
 
-# Install build dependencies and runtime tools in one layer
-RUN dnf install -y \
+# Install build dependencies and runtime tools
+RUN dnf clean all && \
+    dnf makecache --refresh && \
+    dnf install -y \
         cmake \
         make \
         gcc \
