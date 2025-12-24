@@ -119,9 +119,6 @@ func main() {
 		cfg.Detection.Scan.TimeWindow,
 	)
 
-	// Initialize Zeek log parser
-	zeekParser := zeek.NewLogParser(cfg.Zeek.LogDir, logger)
-
 	// Start background tasks
 	go func() {
 		ticker := time.NewTicker(30 * time.Second)
