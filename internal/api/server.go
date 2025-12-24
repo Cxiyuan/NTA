@@ -3,7 +3,6 @@ package api
 import (
 	"net/http"
 
-	"github.com/Cxiyuan/NTA/internal/analyzer"
 	"github.com/Cxiyuan/NTA/internal/asset"
 	"github.com/Cxiyuan/NTA/internal/audit"
 	"github.com/Cxiyuan/NTA/internal/license"
