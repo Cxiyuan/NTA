@@ -8,11 +8,13 @@ WORKDIR /build
 
 RUN apk add --no-cache git make gcc musl-dev sqlite-dev
 
-COPY go.mod ./
+COPY go.mod go.sum ./
+RUN go mod download
+
 COPY . .
-RUN go mod download && go mod tidy
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
+    -tags="sqlite_omit_load_extension" \
     -ldflags="-w -s -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
     -o nta-server ./cmd/nta-server
 
