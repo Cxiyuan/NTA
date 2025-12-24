@@ -100,7 +100,6 @@ jobs:
           cp -r zeek-scripts nta-release/
           cp -r config nta-release/
           cp install-offline.sh nta-release/
-          cp README.md nta-release/
           cp DEPLOYMENT.md nta-release/
           
           tar -czf nta-v4.0-ubuntu24.04-x64.tar.gz nta-release/
