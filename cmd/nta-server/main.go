@@ -17,7 +17,6 @@ import (
 	"github.com/Cxiyuan/NTA/internal/license"
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
-	"github.com/Cxiyuan/NTA/internal/zeek"
 	"github.com/Cxiyuan/NTA/pkg/models"
 	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
