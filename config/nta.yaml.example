@@ -41,3 +41,19 @@ threat_intel:
 license:
   license_file: /opt/nta-probe/config/license.key
   public_key_file: /opt/nta-probe/config/public.pem
+
+security:
+  jwt_secret: CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG
+  enable_tls: false
+  tls_cert_file: ""
+  tls_key_file: ""
+  rate_limit_requests: 100
+  rate_limit_window: 60
+  allowed_origins:
+    - "*"
+
+backup:
+  enabled: true
+  backup_dir: /opt/nta-probe/backups
+  interval_hours: 24
+  retention_days: 7

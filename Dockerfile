@@ -6,9 +6,9 @@ ARG GIT_COMMIT
 
 WORKDIR /build
 
-RUN apk add --no-cache git make
+RUN apk add --no-cache git make gcc musl-dev sqlite-dev
 
-COPY go.mod go.sum ./
+COPY go.mod go.sum* ./
 RUN go mod download
 
 COPY . .

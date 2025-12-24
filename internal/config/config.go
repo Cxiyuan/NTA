@@ -124,8 +124,8 @@ func (c *Config) Validate() error {
 		return errors.New("invalid server port")
 	}
 
-	if c.Server.Host == "0.0.0.0" && c.Server.Mode == "release" {
-		return errors.New("binding to 0.0.0.0 in release mode is insecure, use specific IP or enable TLS")
+	if c.Server.Host == "0.0.0.0" && c.Server.Mode == "release" && !c.Security.EnableTLS {
+		return errors.New("binding to 0.0.0.0 in release mode without TLS is insecure")
 	}
 
 	if c.Database.Type != "sqlite" && c.Database.Type != "mysql" && c.Database.Type != "postgres" {
