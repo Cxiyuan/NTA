@@ -1,0 +1,696 @@
+name: Build Offline Deployment Package
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:
+
+env:
+  DOCKER_VERSION: "24.0.7"
+  DOCKER_COMPOSE_VERSION: "2.23.0"
+
+jobs:
+  build-offline-package:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up environment variables
+        run: |
+          echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          echo "VERSION=$(git describe --tags --always || echo 'dev')" >> $GITHUB_ENV
+          echo "GIT_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build backend image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --build-arg VERSION=${{ env.VERSION }} \
+            --build-arg BUILD_TIME=${{ env.BUILD_TIME }} \
+            --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
+            -t nta-server:${{ env.VERSION }} \
+            --output type=docker,dest=/tmp/nta-server.tar \
+            .
+
+      - name: Build frontend image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-web:${{ env.VERSION }} \
+            --output type=docker,dest=/tmp/nta-web.tar \
+            ./web
+
+      - name: Pull third-party images
+        run: |
+          docker pull --platform linux/amd64 postgres:15-alpine
+          docker pull --platform linux/amd64 redis:7-alpine
+          docker pull --platform linux/amd64 prom/prometheus:latest
+          docker pull --platform linux/amd64 grafana/grafana:latest
+
+      - name: Save third-party images
+        run: |
+          docker save postgres:15-alpine -o /tmp/postgres.tar
+          docker save redis:7-alpine -o /tmp/redis.tar
+          docker save prom/prometheus:latest -o /tmp/prometheus.tar
+          docker save grafana/grafana:latest -o /tmp/grafana.tar
+
+      - name: Download Docker offline packages
+        run: |
+          mkdir -p /tmp/docker-packages
+          
+          # Download Docker Engine for CentOS/AliyunOS
+          curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-${{ env.DOCKER_VERSION }}.tgz \
+            -o /tmp/docker-packages/docker-${{ env.DOCKER_VERSION }}.tgz
+          
+          # Download Docker Compose
+          curl -fsSL https://github.com/docker/compose/releases/download/v${{ env.DOCKER_COMPOSE_VERSION }}/docker-compose-linux-x86_64 \
+            -o /tmp/docker-packages/docker-compose
+          chmod +x /tmp/docker-packages/docker-compose
+
+      - name: Create deployment scripts
+        run: |
+          mkdir -p /tmp/nta-deploy
+          
+          # Create install.sh
+          cat > /tmp/nta-deploy/install.sh <<'INSTALL_EOF'
+          #!/bin/bash
+          set -e
+
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+          DOCKER_VERSION="24.0.7"
+          COMPOSE_VERSION="2.23.0"
+
+          # Color output
+          RED='\033[0;31m'
+          GREEN='\033[0;32m'
+          YELLOW='\033[1;33m'
+          NC='\033[0m'
+
+          log_info() {
+              echo -e "${GREEN}[INFO]${NC} $1"
+          }
+
+          log_warn() {
+              echo -e "${YELLOW}[WARN]${NC} $1"
+          }
+
+          log_error() {
+              echo -e "${RED}[ERROR]${NC} $1"
+          }
+
+          # Detect OS
+          detect_os() {
+              if [ -f /etc/os-release ]; then
+                  . /etc/os-release
+                  OS=$ID
+                  VERSION_ID=$VERSION_ID
+              else
+                  log_error "Cannot detect OS"
+                  exit 1
+              fi
+              
+              log_info "Detected OS: $OS $VERSION_ID"
+          }
+
+          # Check system requirements
+          check_requirements() {
+              log_info "Checking system requirements..."
+              
+              # Check CPU cores
+              CPU_CORES=$(nproc)
+              if [ "$CPU_CORES" -lt 2 ]; then
+                  log_warn "CPU cores: $CPU_CORES (recommended: >= 2)"
+              else
+                  log_info "CPU cores: $CPU_CORES ✓"
+              fi
+              
+              # Check memory
+              TOTAL_MEM=$(free -g | awk '/^Mem:/{print $2}')
+              if [ "$TOTAL_MEM" -lt 4 ]; then
+                  log_warn "Memory: ${TOTAL_MEM}GB (recommended: >= 4GB)"
+              else
+                  log_info "Memory: ${TOTAL_MEM}GB ✓"
+              fi
+              
+              # Check disk space
+              DISK_SPACE=$(df -BG "$SCRIPT_DIR" | tail -1 | awk '{print $4}' | sed 's/G//')
+              if [ "$DISK_SPACE" -lt 50 ]; then
+                  log_warn "Disk space: ${DISK_SPACE}GB (recommended: >= 50GB)"
+              else
+                  log_info "Disk space: ${DISK_SPACE}GB ✓"
+              fi
+          }
+
+          # Install Docker
+          install_docker() {
+              if command -v docker &> /dev/null; then
+                  INSTALLED_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+                  log_info "Docker already installed: $INSTALLED_VERSION"
+                  return 0
+              fi
+              
+              log_info "Installing Docker $DOCKER_VERSION..."
+              
+              cd "$SCRIPT_DIR/docker-packages"
+              tar xzf docker-${DOCKER_VERSION}.tgz
+              
+              # Copy binaries
+              sudo cp docker/* /usr/bin/
+              
+              # Create systemd service
+              sudo tee /etc/systemd/system/docker.service > /dev/null <<'DOCKER_SERVICE'
+          [Unit]
+          Description=Docker Application Container Engine
+          Documentation=https://docs.docker.com
+          After=network-online.target firewalld.service
+          Wants=network-online.target
+
+          [Service]
+          Type=notify
+          ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
+          ExecReload=/bin/kill -s HUP $MAINPID
+          TimeoutSec=0
+          RestartSec=2
+          Restart=always
+          StartLimitBurst=3
+          StartLimitInterval=60s
+          LimitNOFILE=infinity
+          LimitNPROC=infinity
+          LimitCORE=infinity
+          TasksMax=infinity
+          Delegate=yes
+          KillMode=process
+
+          [Install]
+          WantedBy=multi-user.target
+          DOCKER_SERVICE
+              
+              # Install containerd
+              if ! command -v containerd &> /dev/null; then
+                  log_info "Installing containerd..."
+                  CONTAINERD_VERSION="1.7.11"
+                  curl -fsSL https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-amd64.tar.gz | sudo tar -xz -C /usr/local
+                  
+                  sudo tee /etc/systemd/system/containerd.service > /dev/null <<'CONTAINERD_SERVICE'
+          [Unit]
+          Description=containerd container runtime
+          Documentation=https://containerd.io
+          After=network.target
+
+          [Service]
+          ExecStartPre=/sbin/modprobe overlay
+          ExecStart=/usr/local/bin/containerd
+          Restart=always
+          RestartSec=5
+          Delegate=yes
+          KillMode=process
+          OOMScoreAdjust=-999
+          LimitNOFILE=1048576
+          LimitNPROC=infinity
+          LimitCORE=infinity
+          TasksMax=infinity
+
+          [Install]
+          WantedBy=multi-user.target
+          CONTAINERD_SERVICE
+              fi
+              
+              # Start services
+              sudo systemctl daemon-reload
+              sudo systemctl enable containerd docker
+              sudo systemctl start containerd docker
+              
+              log_info "Docker installed successfully ✓"
+          }
+
+          # Install Docker Compose
+          install_docker_compose() {
+              if command -v docker-compose &> /dev/null; then
+                  INSTALLED_VERSION=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' | head -1)
+                  log_info "Docker Compose already installed: $INSTALLED_VERSION"
+                  return 0
+              fi
+              
+              log_info "Installing Docker Compose $COMPOSE_VERSION..."
+              
+              sudo cp "$SCRIPT_DIR/docker-packages/docker-compose" /usr/local/bin/docker-compose
+              sudo chmod +x /usr/local/bin/docker-compose
+              
+              log_info "Docker Compose installed successfully ✓"
+          }
+
+          # Load Docker images
+          load_images() {
+              log_info "Loading Docker images (this may take a few minutes)..."
+              
+              cd "$SCRIPT_DIR/images"
+              for image in *.tar; do
+                  log_info "Loading $image..."
+                  sudo docker load -i "$image"
+              done
+              
+              log_info "All images loaded successfully ✓"
+          }
+
+          # Configure firewall
+          configure_firewall() {
+              log_info "Configuring firewall..."
+              
+              if command -v firewall-cmd &> /dev/null; then
+                  sudo firewall-cmd --permanent --add-port=80/tcp
+                  sudo firewall-cmd --permanent --add-port=3000/tcp
+                  sudo firewall-cmd --permanent --add-port=9090/tcp
+                  sudo firewall-cmd --reload
+                  log_info "Firewall configured (firewalld) ✓"
+              elif command -v ufw &> /dev/null; then
+                  sudo ufw allow 80/tcp
+                  sudo ufw allow 3000/tcp
+                  sudo ufw allow 9090/tcp
+                  log_info "Firewall configured (ufw) ✓"
+              else
+                  log_warn "No firewall detected, skipping"
+              fi
+          }
+
+          # Create configuration
+          create_config() {
+              log_info "Creating configuration files..."
+              
+              mkdir -p "$SCRIPT_DIR/config"
+              
+              if [ ! -f "$SCRIPT_DIR/config/nta.yaml" ]; then
+                  cp "$SCRIPT_DIR/config/nta.yaml.example" "$SCRIPT_DIR/config/nta.yaml"
+                  log_info "Created config/nta.yaml (please review and modify)"
+              fi
+              
+              # Generate random JWT secret
+              JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
+              sed -i "s/CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG/$JWT_SECRET/g" "$SCRIPT_DIR/config/nta.yaml"
+              
+              log_info "Configuration created ✓"
+          }
+
+          # Deploy NTA
+          deploy_nta() {
+              log_info "Deploying NTA system..."
+              
+              cd "$SCRIPT_DIR"
+              
+              export VERSION="${VERSION:-dev}"
+              export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
+              export GIT_COMMIT="${GIT_COMMIT:-unknown}"
+              
+              sudo docker-compose up -d
+              
+              log_info "NTA deployed successfully ✓"
+          }
+
+          # Check deployment
+          check_deployment() {
+              log_info "Checking deployment status..."
+              
+              sleep 5
+              
+              if curl -sf http://localhost/health > /dev/null 2>&1; then
+                  log_info "NTA system is running ✓"
+                  echo ""
+                  log_info "========================================="
+                  log_info "  NTA System Deployed Successfully!"
+                  log_info "========================================="
+                  echo ""
+                  log_info "Access URL: http://$(hostname -I | awk '{print $1}')/"
+                  log_info "Default credentials: admin / admin"
+                  echo ""
+                  log_info "Grafana: http://$(hostname -I | awk '{print $1}'):3000"
+                  log_info "Prometheus: http://$(hostname -I | awk '{print $1}'):9090"
+                  echo ""
+              else
+                  log_error "NTA system health check failed"
+                  log_info "Check logs with: docker-compose logs"
+                  exit 1
+              fi
+          }
+
+          # Main installation
+          main() {
+              echo ""
+              log_info "========================================="
+              log_info "  NTA Offline Installation"
+              log_info "========================================="
+              echo ""
+              
+              detect_os
+              check_requirements
+              install_docker
+              install_docker_compose
+              load_images
+              configure_firewall
+              create_config
+              deploy_nta
+              check_deployment
+          }
+
+          main "$@"
+          INSTALL_EOF
+          
+          chmod +x /tmp/nta-deploy/install.sh
+
+      - name: Create uninstall script
+        run: |
+          cat > /tmp/nta-deploy/uninstall.sh <<'UNINSTALL_EOF'
+          #!/bin/bash
+          set -e
+
+          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+          RED='\033[0;31m'
+          YELLOW='\033[1;33m'
+          NC='\033[0m'
+
+          log_warn() {
+              echo -e "${YELLOW}[WARN]${NC} $1"
+          }
+
+          log_error() {
+              echo -e "${RED}[ERROR]${NC} $1"
+          }
+
+          echo ""
+          log_warn "========================================="
+          log_warn "  NTA Uninstallation"
+          log_warn "========================================="
+          echo ""
+          log_warn "This will remove NTA system and all data!"
+          read -p "Continue? (yes/no): " CONFIRM
+
+          if [ "$CONFIRM" != "yes" ]; then
+              log_error "Aborted"
+              exit 1
+          fi
+
+          cd "$SCRIPT_DIR"
+
+          log_warn "Stopping services..."
+          docker-compose down -v
+
+          log_warn "Removing images..."
+          docker rmi nta-server nta-web postgres:15-alpine redis:7-alpine prom/prometheus grafana/grafana 2>/dev/null || true
+
+          echo ""
+          log_warn "NTA uninstalled. Docker and Docker Compose are still installed."
+          log_warn "To remove Docker completely, run: sudo apt remove docker-ce docker-ce-cli (Ubuntu) or sudo yum remove docker-ce (CentOS)"
+          UNINSTALL_EOF
+          
+          chmod +x /tmp/nta-deploy/uninstall.sh
+
+      - name: Create README
+        run: |
+          cat > /tmp/nta-deploy/README.md <<'README_EOF'
+          # NTA 离线部署包
+
+          ## 系统要求
+
+          - **操作系统**: CentOS 7+, Ubuntu 20.04+, Anolis OS 8
+          - **架构**: x86_64 (64位)
+          - **CPU**: 2核及以上
+          - **内存**: 4GB及以上
+          - **磁盘**: 50GB及以上可用空间
+
+          ## 部署步骤
+
+          ### 1. 解压部署包
+          ```bash
+          unzip nta-offline-deploy-*.zip
+          cd nta-offline-deploy
+          ```
+
+          ### 2. 运行安装脚本
+          ```bash
+          sudo bash install.sh
+          ```
+
+          安装脚本会自动：
+          - 检测系统环境
+          - 安装 Docker 和 Docker Compose
+          - 加载所有镜像
+          - 配置防火墙
+          - 启动 NTA 系统
+
+          ### 3. 访问系统
+          ```
+          前端: http://YOUR_SERVER_IP/
+          Grafana: http://YOUR_SERVER_IP:3000
+          Prometheus: http://YOUR_SERVER_IP:9090
+          ```
+
+          默认登录账号: `admin` / `admin`
+
+          ## 常用命令
+
+          ### 查看服务状态
+          ```bash
+          docker-compose ps
+          ```
+
+          ### 查看日志
+          ```bash
+          docker-compose logs -f
+          docker-compose logs -f nta-server
+          ```
+
+          ### 重启服务
+          ```bash
+          docker-compose restart
+          ```
+
+          ### 停止服务
+          ```bash
+          docker-compose down
+          ```
+
+          ### 启动服务
+          ```bash
+          docker-compose up -d
+          ```
+
+          ## 卸载
+
+          ```bash
+          sudo bash uninstall.sh
+          ```
+
+          ## 目录结构
+
+          ```
+          nta-offline-deploy/
+          ├── install.sh              # 安装脚本
+          ├── uninstall.sh            # 卸载脚本
+          ├── docker-compose.yml      # Docker编排配置
+          ├── images/                 # Docker镜像文件
+          │   ├── nta-server.tar
+          │   ├── nta-web.tar
+          │   ├── postgres.tar
+          │   ├── redis.tar
+          │   ├── prometheus.tar
+          │   └── grafana.tar
+          ├── docker-packages/        # Docker离线安装包
+          │   ├── docker-24.0.7.tgz
+          │   └── docker-compose
+          ├── config/                 # 配置文件
+          │   └── nta.yaml.example
+          ├── deploy/                 # 部署配置
+          └── README.md
+          ```
+
+          ## 配置说明
+
+          主配置文件: `config/nta.yaml`
+
+          **重要配置项**:
+          - `server.host`: 监听地址 (默认 0.0.0.0)
+          - `server.port`: 监听端口 (默认 8080)
+          - `database.dsn`: 数据库连接串
+          - `security.jwt_secret`: JWT密钥 (自动生成)
+
+          ## 故障排查
+
+          ### 检查容器状态
+          ```bash
+          docker-compose ps
+          ```
+
+          ### 查看详细日志
+          ```bash
+          docker-compose logs --tail=100
+          ```
+
+          ### 健康检查
+          ```bash
+          curl http://localhost/health
+          curl http://localhost/api/v1/health
+          ```
+
+          ### 端口检查
+          ```bash
+          netstat -tulnp | grep -E '80|8080|5432|6379'
+          ```
+
+          ## 技术支持
+
+          - 文档: `/root/NTA/docs/`
+          - 问题反馈: GitHub Issues
+          README_EOF
+
+      - name: Copy deployment files
+        run: |
+          # Copy docker-compose.yml
+          cp docker-compose.yml /tmp/nta-deploy/
+          
+          # Copy config files
+          mkdir -p /tmp/nta-deploy/config
+          cat > /tmp/nta-deploy/config/nta.yaml.example <<'CONFIG_EOF'
+          server:
+            host: 0.0.0.0
+            port: 8080
+            mode: release
+
+          database:
+            type: postgres
+            dsn: "host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
+
+          redis:
+            addr: nta-redis:6379
+            password: ""
+            db: 0
+
+          security:
+            jwt_secret: "CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG"
+            enable_tls: false
+            rate_limit_requests: 100
+            rate_limit_window: 60
+
+          detection:
+            scan:
+              threshold: 20
+              time_window: 300
+              min_fail_rate: 0.6
+            auth:
+              fail_threshold: 5
+              pth_window: 3600
+            ml:
+              enabled: true
+              contamination: 0.01
+
+          backup:
+            enabled: true
+            backup_dir: /app/backups
+            interval_hours: 24
+            retention_days: 7
+          CONFIG_EOF
+          
+          # Copy deploy files
+          mkdir -p /tmp/nta-deploy/deploy
+          cp -r deploy/* /tmp/nta-deploy/deploy/ 2>/dev/null || true
+
+      - name: Organize package structure
+        run: |
+          mkdir -p /tmp/nta-deploy/images
+          mkdir -p /tmp/nta-deploy/docker-packages
+          
+          # Move images
+          mv /tmp/nta-server.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-web.tar /tmp/nta-deploy/images/
+          mv /tmp/postgres.tar /tmp/nta-deploy/images/
+          mv /tmp/redis.tar /tmp/nta-deploy/images/
+          mv /tmp/prometheus.tar /tmp/nta-deploy/images/
+          mv /tmp/grafana.tar /tmp/nta-deploy/images/
+          
+          # Move docker packages
+          mv /tmp/docker-packages/* /tmp/nta-deploy/docker-packages/
+
+      - name: Create deployment package
+        run: |
+          cd /tmp
+          PACKAGE_NAME="nta-offline-deploy-${{ env.VERSION }}-$(date +%Y%m%d)"
+          mv nta-deploy "$PACKAGE_NAME"
+          zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+          
+          # Calculate checksum
+          sha256sum "${PACKAGE_NAME}.zip" > "${PACKAGE_NAME}.zip.sha256"
+          
+          # Get package size
+          PACKAGE_SIZE=$(du -h "${PACKAGE_NAME}.zip" | cut -f1)
+          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
+          echo "PACKAGE_SIZE=${PACKAGE_SIZE}" >> $GITHUB_ENV
+
+      - name: Upload deployment package
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.PACKAGE_NAME }}
+          path: |
+            /tmp/${{ env.PACKAGE_NAME }}.zip
+            /tmp/${{ env.PACKAGE_NAME }}.zip.sha256
+          retention-days: 30
+
+      - name: Generate deployment summary
+        run: |
+          cat >> $GITHUB_STEP_SUMMARY <<EOF
+          ## 🎉 NTA 离线部署包构建完成
+
+          ### 📦 包信息
+          - **版本**: ${{ env.VERSION }}
+          - **构建时间**: ${{ env.BUILD_TIME }}
+          - **Git Commit**: ${{ env.GIT_COMMIT }}
+          - **包大小**: ${{ env.PACKAGE_SIZE }}
+          - **包名称**: ${{ env.PACKAGE_NAME }}.zip
+
+          ### 📥 下载地址
+          在 Artifacts 中下载: \`${{ env.PACKAGE_NAME }}\`
+
+          ### 🚀 部署说明
+
+          1. 下载并解压部署包
+          \`\`\`bash
+          unzip ${{ env.PACKAGE_NAME }}.zip
+          cd ${{ env.PACKAGE_NAME }}
+          \`\`\`
+
+          2. 运行安装脚本
+          \`\`\`bash
+          sudo bash install.sh
+          \`\`\`
+
+          3. 访问系统
+          \`\`\`
+          http://YOUR_SERVER_IP/
+          \`\`\`
+
+          ### 📋 包含内容
+          - ✅ Docker 24.0.7 离线安装包
+          - ✅ Docker Compose 2.23.0
+          - ✅ NTA 后端镜像 (nta-server)
+          - ✅ NTA 前端镜像 (nta-web)
+          - ✅ PostgreSQL 15 镜像
+          - ✅ Redis 7 镜像
+          - ✅ Prometheus 镜像
+          - ✅ Grafana 镜像
+          - ✅ 一键安装脚本
+          - ✅ 配置文件模板
+          - ✅ 部署文档
+
+          ### 🖥️ 支持平台
+          - CentOS 7+
+          - Ubuntu 20.04+
+          - Anolis OS (龙蜥) 8
+          - x86_64 架构
+
+          ### 📊 系统要求
+          - CPU: 2核+
+          - 内存: 4GB+
+          - 磁盘: 50GB+
+          EOF

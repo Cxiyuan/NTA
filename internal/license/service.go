@@ -1,8 +1,11 @@
 package license
 
 import (
+	"crypto"
 	"crypto/rsa"
+	"crypto/sha256"
 	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -57,12 +60,21 @@ func NewService(licenseFile, publicKeyFile string, logger *logrus.Logger) (*Serv
 
 // Verify verifies the license is valid
 func (s *Service) Verify() error {
-	// Check expiry
+	if s.license == nil {
+		return errors.New("license not loaded")
+	}
+
 	if time.Now().After(s.license.ExpiryDate) {
 		return errors.New("license expired")
 	}
 
-	// TODO: Verify RSA signature
+	if time.Now().Before(s.license.IssueDate) {
+		return errors.New("license not yet valid")
+	}
+
+	if err := s.verifySignature(); err != nil {
+		return errors.New("license signature verification failed: " + err.Error())
+	}
 	
 	s.logger.Info("License verified successfully")
 	return nil
@@ -119,4 +131,43 @@ func loadPublicKey(path string) (*rsa.PublicKey, error) {
 	}
 
 	return rsaPub, nil
+}
+
+func (s *Service) verifySignature() error {
+	licenseData := struct {
+		Customer     string    `json:"customer"`
+		Product      string    `json:"product"`
+		MaxProbes    int       `json:"max_probes"`
+		MaxBandwidth int       `json:"max_bandwidth_mbps"`
+		IssueDate    time.Time `json:"issue_date"`
+		ExpiryDate   time.Time `json:"expiry_date"`
+		Features     []string  `json:"features"`
+	}{
+		Customer:     s.license.Customer,
+		Product:      s.license.Product,
+		MaxProbes:    s.license.MaxProbes,
+		MaxBandwidth: s.license.MaxBandwidth,
+		IssueDate:    s.license.IssueDate,
+		ExpiryDate:   s.license.ExpiryDate,
+		Features:     s.license.Features,
+	}
+
+	dataBytes, err := json.Marshal(licenseData)
+	if err != nil {
+		return err
+	}
+
+	hashed := sha256.Sum256(dataBytes)
+
+	signature, err := base64.StdEncoding.DecodeString(s.license.Signature)
+	if err != nil {
+		return errors.New("invalid signature encoding")
+	}
+
+	err = rsa.VerifyPKCS1v15(s.publicKey, crypto.SHA256, hashed[:], signature)
+	if err != nil {
+		return errors.New("signature verification failed")
+	}
+
+	return nil
 }

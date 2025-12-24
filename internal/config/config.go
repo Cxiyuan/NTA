@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -8,13 +9,15 @@ import (
 
 // Config represents the application configuration
 type Config struct {
-	Server   ServerConfig   `yaml:"server"`
-	Zeek     ZeekConfig     `yaml:"zeek"`
-	Redis    RedisConfig    `yaml:"redis"`
-	Database DatabaseConfig `yaml:"database"`
-	Detection DetectionConfig `yaml:"detection"`
+	Server      ServerConfig      `yaml:"server"`
+	Zeek        ZeekConfig        `yaml:"zeek"`
+	Redis       RedisConfig       `yaml:"redis"`
+	Database    DatabaseConfig    `yaml:"database"`
+	Detection   DetectionConfig   `yaml:"detection"`
 	ThreatIntel ThreatIntelConfig `yaml:"threat_intel"`
-	License  LicenseConfig  `yaml:"license"`
+	License     LicenseConfig     `yaml:"license"`
+	Security    SecurityConfig    `yaml:"security"`
+	Backup      BackupConfig      `yaml:"backup"`
 }
 
 type ServerConfig struct {
@@ -80,6 +83,23 @@ type LicenseConfig struct {
 	PublicKeyFile string `yaml:"public_key_file"`
 }
 
+type SecurityConfig struct {
+	JWTSecret          string `yaml:"jwt_secret"`
+	EnableTLS          bool   `yaml:"enable_tls"`
+	TLSCertFile        string `yaml:"tls_cert_file"`
+	TLSKeyFile         string `yaml:"tls_key_file"`
+	RateLimitRequests  int    `yaml:"rate_limit_requests"`
+	RateLimitWindow    int    `yaml:"rate_limit_window"`
+	AllowedOrigins     []string `yaml:"allowed_origins"`
+}
+
+type BackupConfig struct {
+	Enabled        bool   `yaml:"enabled"`
+	BackupDir      string `yaml:"backup_dir"`
+	Interval       int    `yaml:"interval_hours"`
+	RetentionDays  int    `yaml:"retention_days"`
+}
+
 // LoadConfig loads configuration from YAML file
 func LoadConfig(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
@@ -92,14 +112,56 @@ func LoadConfig(path string) (*Config, error) {
 		return nil, err
 	}
 
+	if err := cfg.Validate(); err != nil {
+		return nil, err
+	}
+
 	return &cfg, nil
+}
+
+func (c *Config) Validate() error {
+	if c.Server.Port < 1 || c.Server.Port > 65535 {
+		return errors.New("invalid server port")
+	}
+
+	if c.Server.Host == "0.0.0.0" && c.Server.Mode == "release" {
+		return errors.New("binding to 0.0.0.0 in release mode is insecure, use specific IP or enable TLS")
+	}
+
+	if c.Database.Type != "sqlite" && c.Database.Type != "mysql" && c.Database.Type != "postgres" {
+		return errors.New("invalid database type")
+	}
+
+	if c.Database.DSN == "" {
+		return errors.New("database DSN is required")
+	}
+
+	if c.Security.JWTSecret == "" || len(c.Security.JWTSecret) < 32 {
+		return errors.New("JWT secret must be at least 32 characters")
+	}
+
+	if c.Security.EnableTLS {
+		if c.Security.TLSCertFile == "" || c.Security.TLSKeyFile == "" {
+			return errors.New("TLS cert and key files are required when TLS is enabled")
+		}
+	}
+
+	if c.Detection.Scan.Threshold < 1 {
+		return errors.New("scan threshold must be positive")
+	}
+
+	if c.Backup.Enabled && c.Backup.BackupDir == "" {
+		return errors.New("backup directory is required when backup is enabled")
+	}
+
+	return nil
 }
 
 // DefaultConfig returns default configuration
 func DefaultConfig() *Config {
 	return &Config{
 		Server: ServerConfig{
-			Host: "0.0.0.0",
+			Host: "127.0.0.1",
 			Port: 8080,
 			Mode: "release",
 		},
@@ -146,6 +208,19 @@ func DefaultConfig() *Config {
 		License: LicenseConfig{
 			LicenseFile:   "/opt/nta-probe/config/license.key",
 			PublicKeyFile: "/opt/nta-probe/config/public.pem",
+		},
+		Security: SecurityConfig{
+			JWTSecret:         "change-this-secret-in-production-min-32-chars",
+			EnableTLS:         false,
+			RateLimitRequests: 100,
+			RateLimitWindow:   60,
+			AllowedOrigins:    []string{"*"},
+		},
+		Backup: BackupConfig{
+			Enabled:       true,
+			BackupDir:     "/opt/nta-probe/backups",
+			Interval:      24,
+			RetentionDays: 7,
 		},
 	}
 }

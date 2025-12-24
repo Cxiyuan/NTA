@@ -18,8 +18,12 @@ import (
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
 	"github.com/Cxiyuan/NTA/pkg/models"
+	"github.com/Cxiyuan/NTA/pkg/notification"
+	"github.com/Cxiyuan/NTA/pkg/pcap"
+	"github.com/Cxiyuan/NTA/pkg/report"
 	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
+	"gorm.io/driver/postgres"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -53,7 +57,17 @@ func main() {
 	}
 
 	// Initialize database
-	db, err := gorm.Open(sqlite.Open(cfg.Database.DSN), &gorm.Config{})
+	var db *gorm.DB
+	
+	switch cfg.Database.Type {
+	case "postgres":
+		db, err = gorm.Open(postgres.Open(cfg.Database.DSN), &gorm.Config{})
+	case "sqlite":
+		db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), &gorm.Config{})
+	default:
+		db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), &gorm.Config{})
+	}
+	
 	if err != nil {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}
@@ -66,6 +80,13 @@ func main() {
 		&models.Probe{},
 		&models.APTIndicator{},
 		&models.AuditLog{},
+		&models.Tenant{},
+		&models.User{},
+		&models.Role{},
+		&models.UserRole{},
+		&models.Report{},
+		&models.NotificationConfig{},
+		&models.PCAPSession{},
 	)
 
 	// Initialize Redis
@@ -110,6 +131,9 @@ func main() {
 	
 	probeManager := probe.NewManager(db, rdb, logger)
 	auditService := audit.NewService(db, logger)
+	reportService := report.NewService(db, logger, "/opt/nta-probe/reports")
+	notifyService := notification.NewService(db, logger)
+	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
 
 	// Initialize analyzers
 	lateralDetector := analyzer.NewLateralMovementDetector(
@@ -162,6 +186,10 @@ func main() {
 		probeManager,
 		licenseService,
 		auditService,
+		reportService,
+		notifyService,
+		pcapStorage,
+		cfg.Security.JWTSecret,
 	)
 
 	go func() {
