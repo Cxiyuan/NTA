@@ -15,14 +15,15 @@ import (
 	"github.com/Cxiyuan/NTA/pkg/models"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
-	"gorm.io/driver/sqlite"
+	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
 
 func setupTestDB(t *testing.T) *gorm.DB {
-	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	dsn := "host=localhost user=test_user password=test_pass dbname=nta_test port=5432 sslmode=disable"
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
-		t.Fatalf("Failed to open test database: %v", err)
+		t.Skipf("Skipping test: PostgreSQL not available: %v", err)
 	}
 
 	db.AutoMigrate(

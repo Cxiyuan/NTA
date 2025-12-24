@@ -24,7 +24,6 @@ import (
 	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
-	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
 
@@ -59,14 +58,7 @@ func main() {
 	// Initialize database
 	var db *gorm.DB
 	
-	switch cfg.Database.Type {
-	case "postgres":
-		db, err = gorm.Open(postgres.Open(cfg.Database.DSN), &gorm.Config{})
-	case "sqlite":
-		db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), &gorm.Config{})
-	default:
-		db, err = gorm.Open(sqlite.Open(cfg.Database.DSN), &gorm.Config{})
-	}
+	db, err = gorm.Open(postgres.Open(cfg.Database.DSN), &gorm.Config{})
 	
 	if err != nil {
 		logger.Fatalf("Failed to connect to database: %v", err)

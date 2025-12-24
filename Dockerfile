@@ -6,7 +6,7 @@ ARG GIT_COMMIT
 
 WORKDIR /build
 
-RUN apk add --no-cache git make gcc musl-dev sqlite-dev
+RUN apk add --no-cache git make gcc musl-dev postgresql-dev
 
 COPY go.mod ./
 RUN go mod download
@@ -14,13 +14,12 @@ RUN go mod download
 COPY . .
 
 RUN CGO_ENABLED=1 GOOS=linux go build \
-    -tags="sqlite_omit_load_extension" \
     -ldflags="-w -s -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
     -o nta-server ./cmd/nta-server
 
 FROM alpine:3.18
 
-RUN apk add --no-cache ca-certificates tzdata sqlite
+RUN apk add --no-cache ca-certificates tzdata postgresql-client
 
 RUN addgroup -g 1000 nta && \
     adduser -D -u 1000 -G nta nta

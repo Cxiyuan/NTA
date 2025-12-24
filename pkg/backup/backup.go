@@ -14,15 +14,15 @@ import (
 
 type Service struct {
 	backupDir  string
-	dbPath     string
+	dbDSN      string
 	retention  int
 	logger     *logrus.Logger
 }
 
-func NewService(backupDir, dbPath string, retentionDays int, logger *logrus.Logger) *Service {
+func NewService(backupDir, dbDSN string, retentionDays int, logger *logrus.Logger) *Service {
 	return &Service{
 		backupDir: backupDir,
-		dbPath:    dbPath,
+		dbDSN:     dbDSN,
 		retention: retentionDays,
 		logger:    logger,
 	}
@@ -34,15 +34,16 @@ func (s *Service) BackupDatabase() error {
 	}
 
 	timestamp := time.Now().Format("20060102_150405")
-	backupFile := filepath.Join(s.backupDir, fmt.Sprintf("nta_backup_%s.db.gz", timestamp))
+	backupFile := filepath.Join(s.backupDir, fmt.Sprintf("nta_backup_%s.sql.gz", timestamp))
 
 	s.logger.Infof("Creating database backup: %s", backupFile)
 
-	inFile, err := os.Open(s.dbPath)
+	cmd := exec.Command("pg_dump", s.dbDSN)
+	
+	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return fmt.Errorf("failed to open database: %w", err)
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
 	}
-	defer inFile.Close()
 
 	outFile, err := os.Create(backupFile)
 	if err != nil {
@@ -53,8 +54,16 @@ func (s *Service) BackupDatabase() error {
 	gzWriter := gzip.NewWriter(outFile)
 	defer gzWriter.Close()
 
-	if _, err := io.Copy(gzWriter, inFile); err != nil {
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start pg_dump: %w", err)
+	}
+
+	if _, err := io.Copy(gzWriter, stdout); err != nil {
 		return fmt.Errorf("failed to compress backup: %w", err)
+	}
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("pg_dump failed: %w", err)
 	}
 
 	s.logger.Infof("Backup created successfully: %s", backupFile)
@@ -77,19 +86,11 @@ func (s *Service) RestoreDatabase(backupFile string) error {
 	}
 	defer gzReader.Close()
 
-	tempFile := s.dbPath + ".restore"
-	outFile, err := os.Create(tempFile)
-	if err != nil {
-		return fmt.Errorf("failed to create temp file: %w", err)
-	}
-	defer outFile.Close()
-
-	if _, err := io.Copy(outFile, gzReader); err != nil {
-		return fmt.Errorf("failed to write database: %w", err)
-	}
-
-	if err := os.Rename(tempFile, s.dbPath); err != nil {
-		return fmt.Errorf("failed to replace database: %w", err)
+	cmd := exec.Command("psql", s.dbDSN)
+	cmd.Stdin = gzReader
+	
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to restore database: %w", err)
 	}
 
 	s.logger.Info("Database restored successfully")
@@ -97,7 +98,7 @@ func (s *Service) RestoreDatabase(backupFile string) error {
 }
 
 func (s *Service) cleanOldBackups() error {
-	files, err := filepath.Glob(filepath.Join(s.backupDir, "nta_backup_*.db.gz"))
+	files, err := filepath.Glob(filepath.Join(s.backupDir, "nta_backup_*.sql.gz"))
 	if err != nil {
 		return err
 	}
@@ -122,7 +123,7 @@ func (s *Service) cleanOldBackups() error {
 func (s *Service) ExportToSQL(outputFile string) error {
 	s.logger.Infof("Exporting database to SQL: %s", outputFile)
 
-	cmd := exec.Command("sqlite3", s.dbPath, ".dump")
+	cmd := exec.Command("pg_dump", s.dbDSN)
 	
 	outFile, err := os.Create(outputFile)
 	if err != nil {

@@ -14,8 +14,8 @@ redis:
   db: 0
 
 database:
-  type: sqlite
-  dsn: /opt/nta-probe/data/nta.db
+  type: postgres
+  dsn: host=localhost user=nta password=nta_password dbname=nta port=5432 sslmode=disable
 
 detection:
   scan:

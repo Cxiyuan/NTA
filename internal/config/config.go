@@ -39,7 +39,7 @@ type RedisConfig struct {
 }
 
 type DatabaseConfig struct {
-	Type string `yaml:"type"` // sqlite, mysql, postgres
+	Type string `yaml:"type"` // postgres
 	DSN  string `yaml:"dsn"`
 }
 
@@ -128,8 +128,8 @@ func (c *Config) Validate() error {
 		return errors.New("binding to 0.0.0.0 in release mode without TLS is insecure")
 	}
 
-	if c.Database.Type != "sqlite" && c.Database.Type != "mysql" && c.Database.Type != "postgres" {
-		return errors.New("invalid database type")
+	if c.Database.Type != "postgres" {
+		return errors.New("only postgres database is supported")
 	}
 
 	if c.Database.DSN == "" {
@@ -176,8 +176,8 @@ func DefaultConfig() *Config {
 			DB:       0,
 		},
 		Database: DatabaseConfig{
-			Type: "sqlite",
-			DSN:  "/opt/nta-probe/data/nta.db",
+			Type: "postgres",
+			DSN:  "host=localhost user=nta password=nta_password dbname=nta port=5432 sslmode=disable",
 		},
 		Detection: DetectionConfig{
 			Scan: ScanConfig{
