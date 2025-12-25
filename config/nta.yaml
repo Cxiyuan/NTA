@@ -5,7 +5,7 @@ server:
 
 zeek:
   log_dir: /var/spool/zeek
-  script_dir: /opt/nta-probe/zeek-scripts
+  script_dir: /app/zeek-scripts
   interface: eth0
 
 redis:
@@ -36,11 +36,11 @@ threat_intel:
       api_key: ""
       enabled: true
   update_interval: 3600
-  local_feed_path: /opt/nta-probe/config/threat_feed.json
+  local_feed_path: /app/config/threat_feed.json
 
 license:
-  license_file: /opt/nta-probe/config/license.key
-  public_key_file: /opt/nta-probe/config/public.pem
+  license_file: /app/config/license.key
+  public_key_file: /app/config/public.pem
 
 security:
   jwt_secret: CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG
@@ -53,7 +53,7 @@ security:
     - "*"
 
 backup:
-  enabled: true
-  backup_dir: /opt/nta-probe/backups
+  enabled: false
+  backup_dir: /app/backups
   interval_hours: 24
   retention_days: 7
