@@ -819,6 +819,14 @@ jobs:
             retention_days: 7
           CONFIG_EOF
           
+          # Also copy other config files from source repo
+          if [ -f config/threat_feed.json ]; then
+              cp config/threat_feed.json /tmp/nta-deploy/config/
+          fi
+          if [ -f config/apt_iocs.json ]; then
+              cp config/apt_iocs.json /tmp/nta-deploy/config/
+          fi
+          
           # Copy deploy files
           mkdir -p /tmp/nta-deploy/deploy
           cp -r deploy/* /tmp/nta-deploy/deploy/ 2>/dev/null || true

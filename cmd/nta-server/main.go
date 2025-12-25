@@ -28,7 +28,7 @@ import (
 )
 
 var (
-	configFile = flag.String("config", "/opt/nta-probe/config/nta.yaml", "Configuration file path")
+	configFile = flag.String("config", "/app/config/nta.yaml", "Configuration file path")
 	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 )
 

@@ -1,0 +1,59 @@
+server:
+  host: 0.0.0.0
+  port: 8080
+  mode: release
+
+zeek:
+  log_dir: /var/spool/zeek
+  script_dir: /opt/nta-probe/zeek-scripts
+  interface: eth0
+
+redis:
+  addr: nta-redis:6379
+  password: ""
+  db: 0
+
+database:
+  type: postgres
+  dsn: host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable
+
+detection:
+  scan:
+    threshold: 20
+    time_window: 300
+    min_fail_rate: 0.6
+  auth:
+    fail_threshold: 5
+    pth_window: 3600
+  ml:
+    enabled: true
+    contamination: 0.01
+
+threat_intel:
+  sources:
+    - name: threatfox
+      url: https://threatfox-api.abuse.ch/api/v1/
+      api_key: ""
+      enabled: true
+  update_interval: 3600
+  local_feed_path: /opt/nta-probe/config/threat_feed.json
+
+license:
+  license_file: /opt/nta-probe/config/license.key
+  public_key_file: /opt/nta-probe/config/public.pem
+
+security:
+  jwt_secret: CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG
+  enable_tls: false
+  tls_cert_file: ""
+  tls_key_file: ""
+  rate_limit_requests: 100
+  rate_limit_window: 60
+  allowed_origins:
+    - "*"
+
+backup:
+  enabled: true
+  backup_dir: /opt/nta-probe/backups
+  interval_hours: 24
+  retention_days: 7
