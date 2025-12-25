@@ -9,8 +9,9 @@ WORKDIR /build
 RUN apk add --no-cache git make gcc musl-dev postgresql-dev
 
 COPY go.mod ./
+RUN go mod download
 COPY . .
-RUN go mod download && go mod vendor
+RUN go mod vendor
 
 RUN CGO_ENABLED=1 GOOS=linux go build -v -mod=vendor \
     -ldflags="-w -s -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
