@@ -47,7 +47,7 @@ func (s *Server) login(c *gin.Context) {
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)); err != nil {
-		s.logger.Warnf("Failed login attempt for user: %s", req.Username)
+		s.logger.Warnf("Failed login attempt for user: %s (hash: %s, error: %v)", req.Username, user.PasswordHash, err)
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials", "message": "用户名或密码错误"})
 		return
 	}
