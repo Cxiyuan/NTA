@@ -7,7 +7,7 @@ on:
 
 env:
   DOCKER_VERSION: "24.0.7"
-  DOCKER_COMPOSE_VERSION: "2.23.0"
+  DOCKER_COMPOSE_VERSION: "2.24.0"
 
 jobs:
   build-offline-package:
@@ -83,7 +83,7 @@ jobs:
 
           SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
           DOCKER_VERSION="24.0.7"
-          COMPOSE_VERSION="2.23.0"
+          COMPOSE_VERSION="2.24.0"
 
           # Color output
           RED='\033[0;31m'
