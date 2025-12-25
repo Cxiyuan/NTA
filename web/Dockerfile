@@ -6,6 +6,7 @@ COPY package*.json ./
 RUN npm install --legacy-peer-deps
 
 COPY . .
+RUN ls -la && pwd
 RUN npm run build
 
 FROM nginx:alpine
