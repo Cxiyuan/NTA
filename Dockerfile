@@ -17,7 +17,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -v \
 
 FROM alpine:3.18
 
-RUN apk add --no-cache ca-certificates tzdata postgresql-client
+RUN apk add --no-cache ca-certificates tzdata postgresql-client libpcap
 
 RUN addgroup -g 1000 nta && \
     adduser -D -u 1000 -G nta nta

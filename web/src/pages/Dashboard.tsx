@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Row, Col, Card, Statistic } from 'antd'
+import { Row, Col, Card, Statistic, message } from 'antd'
 import { AlertOutlined, DatabaseOutlined, GlobalOutlined, ApiOutlined } from '@ant-design/icons'
 import ReactECharts from 'echarts-for-react'
 import { alertAPI, assetAPI, probeAPI } from '../services/api'
@@ -33,7 +33,9 @@ export default function Dashboard() {
         probes: probesRes.length || 0,
         threats: 0,
       })
-    } catch (error) {
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || error.message || '加载数据失败'
+      message.error(errorMsg)
       console.error('Failed to load dashboard data', error)
     }
   }

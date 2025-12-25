@@ -1,7 +1,7 @@
 import axios from 'axios'
 
 const api = axios.create({
-  baseURL: '/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || '/api/v1',
   timeout: 10000,
 })
 
@@ -23,6 +23,13 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+export const authAPI = {
+  login: (data: { username: string; password: string }) => 
+    api.post('/auth/login', data),
+  logout: () => api.post('/auth/logout'),
+  me: () => api.get('/auth/me'),
+}
 
 export const alertAPI = {
   list: (params: any) => api.get('/alerts', { params }),

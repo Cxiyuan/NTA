@@ -84,6 +84,14 @@ func (s *Server) setupRoutes() {
 	s.router.GET("/metrics", gin.WrapH(promhttp.Handler()))
 
 	api := s.router.Group("/api/v1")
+	
+	auth := api.Group("/auth")
+	{
+		auth.POST("/login", s.login)
+		auth.POST("/logout", s.authMiddleware.Authenticate(), s.logout)
+		auth.GET("/me", s.authMiddleware.Authenticate(), s.getCurrentUser)
+	}
+
 	api.Use(s.authMiddleware.Authenticate())
 
 	assets := api.Group("/assets")

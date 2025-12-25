@@ -35,13 +35,7 @@ services:
       retries: 3
 
   nta-server:
-    build:
-      context: .
-      dockerfile: Dockerfile
-      args:
-        VERSION: ${VERSION:-dev}
-        BUILD_TIME: ${BUILD_TIME}
-        GIT_COMMIT: ${GIT_COMMIT}
+    image: nta-server:v1.0.0
     container_name: nta-server
     restart: unless-stopped
     ports:
@@ -67,9 +61,7 @@ services:
       start_period: 10s
 
   nta-web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
+    image: nta-web:v1.0.0
     container_name: nta-web
     restart: unless-stopped
     ports:

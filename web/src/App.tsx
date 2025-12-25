@@ -16,17 +16,16 @@ import LicenseManagement from './pages/LicenseManagement'
 import TenantManagement from './pages/TenantManagement'
 import Login from './pages/Login'
 
-function App() {
+function PrivateRoute({ children }: { children: JSX.Element }) {
   const isAuthenticated = !!localStorage.getItem('token')
+  return isAuthenticated ? children : <Navigate to="/login" replace />
+}
 
-  if (!isAuthenticated && window.location.pathname !== '/login') {
-    return <Login />
-  }
-
+function App() {
   return (
     <Routes>
       <Route path="/login" element={<Login />} />
-      <Route path="/" element={<Layout />}>
+      <Route path="/" element={<PrivateRoute><Layout /></PrivateRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="alerts" element={<Alerts />} />

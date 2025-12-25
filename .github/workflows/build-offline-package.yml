@@ -8,6 +8,7 @@ on:
 env:
   DOCKER_VERSION: "24.0.7"
   DOCKER_COMPOSE_VERSION: "2.24.0"
+  CONTAINERD_VERSION: "1.7.11"
 
 jobs:
   build-offline-package:
@@ -33,7 +34,7 @@ jobs:
             --build-arg VERSION=${{ env.VERSION }} \
             --build-arg BUILD_TIME=${{ env.BUILD_TIME }} \
             --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
-            -t nta-server:${{ env.VERSION }} \
+            -t nta-server:v1.0.0 \
             --output type=docker,dest=/tmp/nta-server.tar \
             .
 
@@ -41,7 +42,7 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -t nta-web:${{ env.VERSION }} \
+            -t nta-web:v1.0.0 \
             --output type=docker,dest=/tmp/nta-web.tar \
             ./web
 
@@ -71,6 +72,10 @@ jobs:
           curl -fsSL https://github.com/docker/compose/releases/download/v${{ env.DOCKER_COMPOSE_VERSION }}/docker-compose-linux-x86_64 \
             -o /tmp/docker-packages/docker-compose
           chmod +x /tmp/docker-packages/docker-compose
+          
+          # Download containerd
+          curl -fsSL https://github.com/containerd/containerd/releases/download/v${{ env.CONTAINERD_VERSION }}/containerd-${{ env.CONTAINERD_VERSION }}-linux-amd64.tar.gz \
+            -o /tmp/docker-packages/containerd.tar.gz
 
       - name: Create deployment scripts
         run: |
@@ -167,8 +172,9 @@ jobs:
           [Unit]
           Description=Docker Application Container Engine
           Documentation=https://docs.docker.com
-          After=network-online.target firewalld.service
+          After=network-online.target firewalld.service containerd.service docker.socket
           Wants=network-online.target
+          Requires=docker.socket containerd.service
 
           [Service]
           Type=notify
@@ -190,11 +196,31 @@ jobs:
           WantedBy=multi-user.target
           DOCKER_SERVICE
               
+              # Create docker socket
+              sudo tee /etc/systemd/system/docker.socket > /dev/null <<'DOCKER_SOCKET'
+          [Unit]
+          Description=Docker Socket for the API
+          PartOf=docker.service
+
+          [Socket]
+          ListenStream=/var/run/docker.sock
+          SocketMode=0660
+          SocketUser=root
+          SocketGroup=docker
+
+          [Install]
+          WantedBy=sockets.target
+          DOCKER_SOCKET
+              
               # Install containerd
               if ! command -v containerd &> /dev/null; then
                   log_info "Installing containerd..."
-                  CONTAINERD_VERSION="1.7.11"
-                  curl -fsSL https://github.com/containerd/containerd/releases/download/v${CONTAINERD_VERSION}/containerd-${CONTAINERD_VERSION}-linux-amd64.tar.gz | sudo tar -xz -C /usr/local
+                  if [ -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz" ]; then
+                      sudo tar -xz -C /usr/local -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz"
+                  else
+                      log_error "containerd.tar.gz not found in docker-packages/"
+                      exit 1
+                  fi
                   
                   sudo tee /etc/systemd/system/containerd.service > /dev/null <<'CONTAINERD_SERVICE'
           [Unit]
@@ -220,10 +246,16 @@ jobs:
           CONTAINERD_SERVICE
               fi
               
+              # Create docker group
+              if ! getent group docker > /dev/null 2>&1; then
+                  log_info "Creating docker group..."
+                  sudo groupadd docker
+              fi
+              
               # Start services
               sudo systemctl daemon-reload
-              sudo systemctl enable containerd docker
-              sudo systemctl start containerd docker
+              sudo systemctl enable containerd docker.socket docker
+              sudo systemctl start containerd docker.socket docker
               
               log_info "Docker installed successfully ✓"
           }
@@ -399,7 +431,7 @@ jobs:
           docker-compose down -v
 
           log_warn "Removing images..."
-          docker rmi nta-server nta-web postgres:15-alpine redis:7-alpine prom/prometheus grafana/grafana 2>/dev/null || true
+          docker rmi nta-server:v1.0.0 nta-web:v1.0.0 postgres:15-alpine redis:7-alpine prom/prometheus:latest grafana/grafana:latest 2>/dev/null || true
 
           echo ""
           log_warn "NTA uninstalled. Docker and Docker Compose are still installed."

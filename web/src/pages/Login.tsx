@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Form, Input, Button, Card, message } from 'antd'
 import { UserOutlined, LockOutlined } from '@ant-design/icons'
 import { useNavigate } from 'react-router-dom'
+import { authAPI } from '../services/api'
 
 export default function Login() {
   const [loading, setLoading] = useState(false)
@@ -10,12 +11,21 @@ export default function Login() {
   const onFinish = async (values: any) => {
     setLoading(true)
     try {
-      const mockToken = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.mock'
-      localStorage.setItem('token', mockToken)
-      message.success('登录成功')
-      navigate('/dashboard')
-    } catch (error) {
-      message.error('登录失败')
+      const res: any = await authAPI.login({
+        username: values.username,
+        password: values.password,
+      })
+      
+      if (res.token) {
+        localStorage.setItem('token', res.token)
+        message.success('登录成功')
+        navigate('/dashboard')
+      } else {
+        message.error('登录失败：未返回 token')
+      }
+    } catch (error: any) {
+      const errorMsg = error.response?.data?.message || error.message || '登录失败'
+      message.error(errorMsg)
     } finally {
       setLoading(false)
     }
