@@ -18,6 +18,7 @@ import (
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
 	"github.com/Cxiyuan/NTA/pkg/models"
+	"golang.org/x/crypto/bcrypt"
 	"github.com/Cxiyuan/NTA/pkg/notification"
 	"github.com/Cxiyuan/NTA/pkg/pcap"
 	"github.com/Cxiyuan/NTA/pkg/report"
