@@ -12,9 +12,9 @@ COPY go.mod ./
 COPY . .
 RUN go mod download && go mod tidy
 
-RUN CGO_ENABLED=1 GOOS=linux go build \
+RUN CGO_ENABLED=1 GOOS=linux go build -v \
     -ldflags="-w -s -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
-    -o nta-server ./cmd/nta-server
+    -o nta-server ./cmd/nta-server 2>&1 || (cat /build/go/pkg/mod/cache/download/sumdb/sum.golang.org/latest 2>/dev/null; exit 1)
 
 FROM alpine:3.18
 
