@@ -290,7 +290,7 @@ jobs:
               
               # Generate random JWT secret
               JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
-              sed -i "s/CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG/$JWT_SECRET/g" "$SCRIPT_DIR/config/nta.yaml"
+              sed -i "s|CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG|$JWT_SECRET|g" "$SCRIPT_DIR/config/nta.yaml"
               
               log_info "Configuration created ✓"
           }
