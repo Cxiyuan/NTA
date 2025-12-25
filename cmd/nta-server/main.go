@@ -151,30 +151,34 @@ func main() {
 		}
 		
 		// Create default admin user
-		// Password hash for "admin" using bcrypt
-		adminUser := models.User{
-			Username:     "admin",
-			Email:        "admin@nta.local",
-			PasswordHash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // "admin"
-			TenantID:     defaultTenant.TenantID,
-			Status:       models.StatusActive,
-		}
-		if err := db.Create(&adminUser).Error; err != nil {
-			logger.Errorf("Failed to create admin user: %v", err)
+		hashedPassword, err := bcrypt.GenerateFromPassword([]byte("admin"), bcrypt.DefaultCost)
+		if err != nil {
+			logger.Errorf("Failed to hash password: %v", err)
 		} else {
-			logger.Info("Created admin user (username: admin, password: admin)")
-		}
-		
-		// Assign admin role to admin user
-		userRole := models.UserRole{
-			UserID:   adminUser.ID,
-			RoleID:   adminRole.ID,
-			TenantID: defaultTenant.TenantID,
-		}
-		if err := db.Create(&userRole).Error; err != nil {
-			logger.Errorf("Failed to assign admin role: %v", err)
-		} else {
-			logger.Info("Assigned admin role to admin user")
+			adminUser := models.User{
+				Username:     "admin",
+				Email:        "admin@nta.local",
+				PasswordHash: string(hashedPassword),
+				TenantID:     defaultTenant.TenantID,
+				Status:       models.StatusActive,
+			}
+			if err := db.Create(&adminUser).Error; err != nil {
+				logger.Errorf("Failed to create admin user: %v", err)
+			} else {
+				logger.Infof("Created admin user (username: admin, password: admin, hash: %s)", string(hashedPassword))
+				
+				// Assign admin role to admin user
+				userRole := models.UserRole{
+					UserID:   adminUser.ID,
+					RoleID:   adminRole.ID,
+					TenantID: defaultTenant.TenantID,
+				}
+				if err := db.Create(&userRole).Error; err != nil {
+					logger.Errorf("Failed to assign admin role: %v", err)
+				} else {
+					logger.Info("Assigned admin role to admin user")
+				}
+			}
 		}
 		
 		logger.Info("✓ Database initialization completed successfully")
