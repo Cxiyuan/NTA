@@ -9,13 +9,13 @@ zeek:
   interface: eth0
 
 redis:
-  addr: redis:6379
+  addr: nta-redis:6379
   password: ""
   db: 0
 
 database:
   type: postgres
-  dsn: host=postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable
+  dsn: host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable
 
 detection:
   scan:

@@ -13,6 +13,8 @@ services:
       - POSTGRES_PASSWORD=nta_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
+    networks:
+      - nta-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U nta"]
       interval: 10s
@@ -28,6 +30,8 @@ services:
     volumes:
       - redis-data:/data
     command: redis-server --appendonly yes
+    networks:
+      - nta-network
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -53,6 +57,8 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    networks:
+      - nta-network
     healthcheck:
       test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
@@ -66,6 +72,8 @@ services:
     restart: unless-stopped
     ports:
       - "80:80"
+    networks:
+      - nta-network
     depends_on:
       - nta-server
 
@@ -78,6 +86,8 @@ services:
     volumes:
       - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus-data:/prometheus
+    networks:
+      - nta-network
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
       - '--storage.tsdb.path=/prometheus'
@@ -95,8 +105,14 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./deploy/grafana-dashboards:/etc/grafana/provisioning/dashboards:ro
+    networks:
+      - nta-network
     depends_on:
       - prometheus
+
+networks:
+  nta-network:
+    driver: bridge
 
 volumes:
   postgres-data:

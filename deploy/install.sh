@@ -11,6 +11,10 @@ INSTALL_DIR="/opt/nta-probe"
 SERVICE_USER="nta"
 ZEEK_VERSION="6.0.3"
 GO_VERSION="1.21.5"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+DEPLOY_MODE=""
 
 log_info() {
     echo -e "${GREEN}[INFO]${NC} $1"
@@ -31,7 +35,52 @@ check_root() {
     fi
 }
 
+select_deploy_mode() {
+    echo "请选择部署模式:"
+    echo "  1) Docker 部署 (推荐，适用于所有系统)"
+    echo "  2) 原生部署 (仅支持 Ubuntu 24.04)"
+    echo ""
+    read -p "请输入选项 [1-2]: " -n 1 -r
+    echo ""
+    
+    case $REPLY in
+        1)
+            DEPLOY_MODE="docker"
+            log_info "已选择: Docker 部署模式"
+            ;;
+        2)
+            DEPLOY_MODE="native"
+            log_info "已选择: 原生部署模式"
+            ;;
+        *)
+            log_error "无效选项"
+            exit 1
+            ;;
+    esac
+}
+
+check_docker() {
+    if ! command -v docker &> /dev/null; then
+        log_error "Docker 未安装，请先安装 Docker"
+        log_info "安装命令: curl -fsSL https://get.docker.com | sh"
+        exit 1
+    fi
+    log_info "✓ Docker 已安装: $(docker --version)"
+}
+
+check_docker_compose() {
+    if ! command -v docker-compose &> /dev/null && ! docker compose version &> /dev/null; then
+        log_error "Docker Compose 未安装，请先安装 Docker Compose"
+        exit 1
+    fi
+    log_info "✓ Docker Compose 已安装"
+}
+
 check_ubuntu_24() {
+    if [ "$DEPLOY_MODE" != "native" ]; then
+        return 0
+    fi
+    
     if [ ! -f /etc/os-release ]; then
         log_error "无法检测操作系统"
         exit 1
@@ -53,6 +102,11 @@ check_ubuntu_24() {
 }
 
 check_system_requirements() {
+    if [ "$DEPLOY_MODE" != "native" ]; then
+        log_info "跳过系统要求检查 (Docker 模式)"
+        return 0
+    fi
+    
     log_info "检查系统要求..."
     
     if [ "$(uname -m)" != "x86_64" ]; then
@@ -246,6 +300,194 @@ configure_zeek() {
     zeekctl deploy
 }
 
+# ============================================
+# Docker 部署相关函数
+# ============================================
+
+check_docker_config() {
+    log_info "检查 Docker 配置文件..."
+    
+    if [ ! -f "$PROJECT_ROOT/config/nta.yaml" ]; then
+        log_warn "配置文件不存在，从示例文件创建..."
+        if [ -f "$PROJECT_ROOT/config/nta.yaml.example" ]; then
+            cp "$PROJECT_ROOT/config/nta.yaml.example" "$PROJECT_ROOT/config/nta.yaml"
+            log_info "✓ 已创建配置文件: config/nta.yaml"
+        else
+            log_error "示例配置文件不存在: config/nta.yaml.example"
+            exit 1
+        fi
+    else
+        log_info "✓ 配置文件已存在: config/nta.yaml"
+    fi
+    
+    if ! grep -q "nta-postgres" "$PROJECT_ROOT/config/nta.yaml"; then
+        log_warn "配置文件中数据库地址可能不正确，正在自动修复..."
+        sed -i 's/host=localhost/host=nta-postgres/g' "$PROJECT_ROOT/config/nta.yaml"
+        sed -i 's/host=postgres /host=nta-postgres /g' "$PROJECT_ROOT/config/nta.yaml"
+    fi
+    
+    if ! grep -q "nta-redis" "$PROJECT_ROOT/config/nta.yaml"; then
+        log_warn "配置文件中 Redis 地址可能不正确，正在自动修复..."
+        sed -i 's/addr: localhost:6379/addr: nta-redis:6379/g' "$PROJECT_ROOT/config/nta.yaml"
+        sed -i 's/addr: redis:6379/addr: nta-redis:6379/g' "$PROJECT_ROOT/config/nta.yaml"
+    fi
+    
+    log_info "✓ 配置文件检查完成"
+}
+
+check_docker_images() {
+    log_info "检查 Docker 镜像..."
+    
+    if ! docker images | grep -q "nta-server.*v1.0.0"; then
+        log_error "nta-server:v1.0.0 镜像不存在"
+        log_info "请先通过以下方式之一获取镜像:"
+        log_info "  1. 从 GitHub Actions 下载并导入: docker load -i nta-server-v1.0.0.tar"
+        log_info "  2. 或在本地构建: docker build -t nta-server:v1.0.0 -f Dockerfile ."
+        exit 1
+    fi
+    
+    if ! docker images | grep -q "nta-web.*v1.0.0"; then
+        log_warn "nta-web:v1.0.0 镜像不存在，将跳过 Web UI 部署"
+        log_info "如需部署 Web UI，请先获取镜像:"
+        log_info "  1. 从 GitHub Actions 下载并导入: docker load -i nta-web-v1.0.0.tar"
+        log_info "  2. 或在本地构建: docker build -t nta-web:v1.0.0 -f web/Dockerfile web/"
+    fi
+    
+    log_info "✓ 必需镜像已存在"
+}
+
+cleanup_old_containers() {
+    log_info "清理旧容器..."
+    
+    cd "$PROJECT_ROOT"
+    if command -v docker-compose &> /dev/null; then
+        docker-compose down 2>/dev/null || true
+    else
+        docker compose down 2>/dev/null || true
+    fi
+    
+    docker ps -a | grep "nta-" | awk '{print $1}' | xargs -r docker rm -f 2>/dev/null || true
+    
+    log_info "✓ 清理完成"
+}
+
+start_docker_containers() {
+    log_info "启动 Docker 容器..."
+    
+    cd "$PROJECT_ROOT"
+    
+    if command -v docker-compose &> /dev/null; then
+        docker-compose up -d
+    else
+        docker compose up -d
+    fi
+    
+    log_info "✓ 容器已启动"
+}
+
+wait_for_docker_services() {
+    log_info "等待服务启动..."
+    
+    local max_attempts=60
+    local attempt=0
+    
+    while [ $attempt -lt $max_attempts ]; do
+        if docker ps | grep -q "nta-postgres.*Up"; then
+            if docker ps | grep -q "nta-redis.*Up"; then
+                if docker ps | grep -q "nta-server.*Up"; then
+                    log_info "✓ 所有服务已启动"
+                    return 0
+                fi
+            fi
+        fi
+        attempt=$((attempt + 1))
+        sleep 2
+        echo -n "."
+    done
+    
+    echo ""
+    log_error "服务启动超时"
+    return 1
+}
+
+check_docker_status() {
+    log_info "检查容器状态..."
+    echo ""
+    docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+    echo ""
+    
+    if docker ps | grep -q "nta-server.*Restarting"; then
+        log_error "nta-server 容器持续重启，查看日志:"
+        docker logs nta-server --tail 50
+        return 1
+    fi
+    
+    if ! docker ps | grep -q "nta-server.*Up"; then
+        log_error "nta-server 容器未正常运行"
+        docker logs nta-server --tail 50
+        return 1
+    fi
+    
+    log_info "✓ 容器状态正常"
+    return 0
+}
+
+show_docker_logs() {
+    log_info "显示 nta-server 日志 (最近 20 行):"
+    echo ""
+    docker logs nta-server --tail 20 2>&1 || true
+    echo ""
+}
+
+deploy_docker() {
+    log_info "开始 Docker 部署..."
+    
+    check_docker
+    check_docker_compose
+    check_docker_config
+    check_docker_images
+    cleanup_old_containers
+    start_docker_containers
+    
+    sleep 5
+    
+    if wait_for_docker_services; then
+        sleep 3
+        if check_docker_status; then
+            show_docker_logs
+            return 0
+        else
+            log_error "容器状态异常"
+            return 1
+        fi
+    else
+        log_error "服务启动失败"
+        show_docker_logs
+        return 1
+    fi
+}
+
+# ============================================
+# 原生部署相关函数
+# ============================================
+
+deploy_native() {
+    log_info "开始原生部署..."
+    
+    install_dependencies
+    install_golang
+    install_zeek
+    create_service_user
+    build_nta
+    install_nta_probe
+    configure_zeek
+    create_systemd_services
+    start_services
+    
+    sleep 5
+    show_status
+}
+
 create_systemd_services() {
     log_info "创建 systemd 服务..."
     
@@ -311,9 +553,17 @@ show_status() {
 }
 
 show_help() {
+    if [ "$DEPLOY_MODE" = "docker" ]; then
+        show_docker_help
+    else
+        show_native_help
+    fi
+}
+
+show_native_help() {
     echo ""
     echo "=========================================="
-    echo "   NTA 探针安装完成"
+    echo "   NTA 探针安装完成 (原生模式)"
     echo "=========================================="
     echo ""
     echo "服务管理命令:"
@@ -335,17 +585,58 @@ show_help() {
     echo ""
 }
 
+show_docker_help() {
+    echo ""
+    echo "=========================================="
+    echo "   NTA Docker 部署完成"
+    echo "=========================================="
+    echo ""
+    echo "服务访问地址:"
+    echo "  API Server:  http://$(hostname -I | awk '{print $1}'):8080"
+    echo "  Web UI:      http://$(hostname -I | awk '{print $1}'):80"
+    echo "  Grafana:     http://$(hostname -I | awk '{print $1}'):3000  (admin/admin)"
+    echo "  Prometheus:  http://$(hostname -I | awk '{print $1}'):9090"
+    echo ""
+    echo "服务管理命令:"
+    if command -v docker-compose &> /dev/null; then
+        echo "  启动所有服务:  cd $PROJECT_ROOT && docker-compose up -d"
+        echo "  停止所有服务:  cd $PROJECT_ROOT && docker-compose down"
+        echo "  重启服务:      cd $PROJECT_ROOT && docker-compose restart nta-server"
+        echo "  查看日志:      docker logs -f nta-server"
+        echo "  查看状态:      docker-compose ps"
+    else
+        echo "  启动所有服务:  cd $PROJECT_ROOT && docker compose up -d"
+        echo "  停止所有服务:  cd $PROJECT_ROOT && docker compose down"
+        echo "  重启服务:      cd $PROJECT_ROOT && docker compose restart nta-server"
+        echo "  查看日志:      docker logs -f nta-server"
+        echo "  查看状态:      docker compose ps"
+    fi
+    echo ""
+    echo "容器管理:"
+    echo "  进入容器:      docker exec -it nta-server sh"
+    echo "  重启容器:      docker restart nta-server"
+    echo ""
+    echo "配置文件位置:  $PROJECT_ROOT/config/nta.yaml"
+    echo "查看数据卷:    docker volume ls | grep nta"
+    echo ""
+}
+
 main() {
     echo "=========================================="
-    echo "   NTA 探针自动安装脚本"
-    echo "   仅支持 Ubuntu 24.04 LTS"
+    echo "   NTA 自动安装脚本"
     echo "=========================================="
     echo ""
     
     check_root
-    check_ubuntu_24
+    select_deploy_mode
+    
+    if [ "$DEPLOY_MODE" = "native" ]; then
+        check_ubuntu_24
+    fi
+    
     check_system_requirements
     
+    echo ""
     read -p "是否继续安装? (y/n): " -n 1 -r
     echo
     if [[ ! $REPLY =~ ^[Yy]$ ]]; then
@@ -353,22 +644,19 @@ main() {
         exit 0
     fi
     
-    install_dependencies
-    install_golang
-    install_zeek
-    create_service_user
-    build_nta
-    install_nta_probe
-    configure_zeek
-    create_systemd_services
-    start_services
-    
-    sleep 5
-    
-    show_status
-    show_help
-    
-    log_info "安装完成! 🎉"
+    if [ "$DEPLOY_MODE" = "docker" ]; then
+        if deploy_docker; then
+            show_help
+            log_info "部署完成! 🎉"
+        else
+            log_error "部署失败，请查看上方错误信息"
+            exit 1
+        fi
+    else
+        deploy_native
+        show_help
+        log_info "安装完成! 🎉"
+    fi
 }
 
 main "$@"

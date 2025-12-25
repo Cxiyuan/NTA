@@ -325,14 +325,56 @@ jobs:
               
               if [ ! -f "$SCRIPT_DIR/config/nta.yaml" ]; then
                   cp "$SCRIPT_DIR/config/nta.yaml.example" "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Created config/nta.yaml (please review and modify)"
+                  log_info "Created config/nta.yaml"
               fi
               
               # Generate random JWT secret
               JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
               sed -i "s|CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG|$JWT_SECRET|g" "$SCRIPT_DIR/config/nta.yaml"
               
+              # Fix database and redis addresses for Docker container networking
+              log_info "Configuring container networking..."
+              
+              # Fix PostgreSQL hostname - ensure using container name
+              if grep -q "host=localhost" "$SCRIPT_DIR/config/nta.yaml"; then
+                  sed -i 's/host=localhost/host=nta-postgres/g' "$SCRIPT_DIR/config/nta.yaml"
+                  log_info "Fixed database address: localhost -> nta-postgres"
+              fi
+              if grep -q "host=postgres " "$SCRIPT_DIR/config/nta.yaml"; then
+                  sed -i 's/host=postgres /host=nta-postgres /g' "$SCRIPT_DIR/config/nta.yaml"
+                  log_info "Fixed database address: postgres -> nta-postgres"
+              fi
+              
+              # Fix Redis hostname - ensure using container name
+              if grep -q "addr: localhost:6379" "$SCRIPT_DIR/config/nta.yaml"; then
+                  sed -i 's/addr: localhost:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
+                  log_info "Fixed redis address: localhost -> nta-redis"
+              fi
+              if grep -q "addr: redis:6379" "$SCRIPT_DIR/config/nta.yaml"; then
+                  sed -i 's/addr: redis:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
+                  log_info "Fixed redis address: redis -> nta-redis"
+              fi
+              
               log_info "Configuration created ✓"
+          }
+          
+          # Verify container networking
+          verify_network() {
+              log_info "Verifying container network configuration..."
+              
+              # Check if nta-postgres is reachable from nta-server
+              if docker exec nta-server ping -c 2 nta-postgres > /dev/null 2>&1; then
+                  log_info "✓ nta-server can reach nta-postgres"
+              else
+                  log_warn "✗ nta-server cannot reach nta-postgres (containers may still be starting)"
+              fi
+              
+              # Check if nta-redis is reachable from nta-server
+              if docker exec nta-server ping -c 2 nta-redis > /dev/null 2>&1; then
+                  log_info "✓ nta-server can reach nta-redis"
+              else
+                  log_warn "✗ nta-server cannot reach nta-redis (containers may still be starting)"
+              fi
           }
 
           # Deploy NTA
@@ -341,39 +383,161 @@ jobs:
               
               cd "$SCRIPT_DIR"
               
+              # Verify docker-compose.yml exists
+              if [ ! -f docker-compose.yml ]; then
+                  log_error "docker-compose.yml not found in $SCRIPT_DIR"
+                  exit 1
+              fi
+              
+              # Verify config exists
+              if [ ! -f config/nta.yaml ]; then
+                  log_error "config/nta.yaml not found"
+                  exit 1
+              fi
+              
               export VERSION="${VERSION:-dev}"
               export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
               export GIT_COMMIT="${GIT_COMMIT:-unknown}"
               
+              log_info "Starting Docker Compose..."
               docker-compose up -d
               
-              log_info "NTA deployed successfully ✓"
+              if [ $? -ne 0 ]; then
+                  log_error "docker-compose up failed"
+                  exit 1
+              fi
+              
+              log_info "Containers started, waiting for initialization..."
+              sleep 5
+              
+              # Verify network exists
+              if docker network ls | grep -q "nta.*network"; then
+                  log_info "Docker network created ✓"
+              else
+                  log_warn "NTA network not found, containers may have networking issues"
+              fi
+              
+              log_info "NTA deployment initiated ✓"
           }
 
           # Check deployment
           check_deployment() {
               log_info "Checking deployment status..."
               
-              sleep 5
+              log_info "Waiting for containers to start..."
+              sleep 10
               
-              if curl -sf http://localhost/health > /dev/null 2>&1; then
-                  log_info "NTA system is running ✓"
-                  echo ""
-                  log_info "========================================="
-                  log_info "  NTA System Deployed Successfully!"
-                  log_info "========================================="
-                  echo ""
-                  log_info "Access URL: http://$(hostname -I | awk '{print $1}')/"
-                  log_info "Default credentials: admin / admin"
-                  echo ""
-                  log_info "Grafana: http://$(hostname -I | awk '{print $1}'):3000"
-                  log_info "Prometheus: http://$(hostname -I | awk '{print $1}'):9090"
-                  echo ""
-              else
-                  log_error "NTA system health check failed"
-                  log_info "Check logs with: docker-compose logs"
+              # Show all container status
+              log_info "Container status:"
+              docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+              echo ""
+              
+              # Check if nta-server container exists
+              if ! docker ps -a | grep -q "nta-server"; then
+                  log_error "nta-server container not found"
+                  log_info "Available containers:"
+                  docker ps -a
                   exit 1
               fi
+              
+              # Check if nta-server is restarting
+              if docker ps -a | grep "nta-server" | grep -q "Restarting"; then
+                  log_error "nta-server container is restarting - configuration issue detected"
+                  echo ""
+                  log_info "Recent logs from nta-server:"
+                  docker logs nta-server --tail 100 2>&1 || true
+                  echo ""
+                  log_error "Common issues:"
+                  log_error "  1. Database connection failed - check if postgres container is healthy"
+                  log_error "  2. Redis connection failed - check if redis container is healthy"
+                  log_error "  3. Configuration file issues - verify config/nta.yaml"
+                  echo ""
+                  log_info "Troubleshooting steps:"
+                  log_info "  1. Check database: docker logs nta-postgres"
+                  log_info "  2. Check redis: docker logs nta-redis"
+                  log_info "  3. Check network: docker network inspect nta_nta-network"
+                  log_info "  4. Verify config: cat config/nta.yaml | grep -E '(dsn|addr)'"
+                  exit 1
+              fi
+              
+              # Wait for nta-server to be Up
+              log_info "Waiting for nta-server to be healthy..."
+              local wait_attempts=30
+              local wait_count=0
+              
+              while [ $wait_count -lt $wait_attempts ]; do
+                  if docker ps | grep "nta-server" | grep -q "Up"; then
+                      log_info "nta-server is running"
+                      break
+                  fi
+                  wait_count=$((wait_count + 1))
+                  echo -n "."
+                  sleep 2
+              done
+              echo ""
+              
+              if [ $wait_count -ge $wait_attempts ]; then
+                  log_error "nta-server failed to start within 60 seconds"
+                  docker logs nta-server --tail 100 2>&1 || true
+                  exit 1
+              fi
+              
+              # Verify network connectivity
+              sleep 3
+              verify_network
+              
+              # Wait for health check endpoint
+              log_info "Waiting for API health check..."
+              local max_attempts=30
+              local attempt=0
+              
+              while [ $attempt -lt $max_attempts ]; do
+                  if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
+                      log_info "NTA system is healthy ✓"
+                      echo ""
+                      log_info "========================================="
+                      log_info "  NTA System Deployed Successfully!"
+                      log_info "========================================="
+                      echo ""
+                      log_info "Access URLs:"
+                      log_info "  Web UI:      http://$(hostname -I | awk '{print $1}')/"
+                      log_info "  API Server:  http://$(hostname -I | awk '{print $1}'):8080"
+                      log_info "  Health API:  http://$(hostname -I | awk '{print $1}'):8080/health"
+                      echo ""
+                      log_info "Monitoring:"
+                      log_info "  Grafana:     http://$(hostname -I | awk '{print $1}'):3000 (admin/admin)"
+                      log_info "  Prometheus:  http://$(hostname -I | awk '{print $1}'):9090"
+                      echo ""
+                      log_info "Management Commands:"
+                      log_info "  View logs:       docker logs -f nta-server"
+                      log_info "  View all logs:   docker-compose logs -f"
+                      log_info "  Restart service: docker-compose restart nta-server"
+                      log_info "  Stop all:        docker-compose down"
+                      log_info "  Start all:       docker-compose up -d"
+                      echo ""
+                      log_info "Default credentials: admin / admin"
+                      echo ""
+                      return 0
+                  fi
+                  attempt=$((attempt + 1))
+                  echo -n "."
+                  sleep 2
+              done
+              
+              echo ""
+              log_error "NTA API health check failed after 60 seconds"
+              echo ""
+              log_info "Final container status:"
+              docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+              echo ""
+              log_info "nta-server logs:"
+              docker logs nta-server --tail 100 2>&1 || true
+              echo ""
+              log_warn "The system may still be starting. You can:"
+              log_warn "  1. Wait a few more minutes and check: curl http://localhost:8080/health"
+              log_warn "  2. Check logs: docker logs -f nta-server"
+              log_warn "  3. Restart: docker-compose restart nta-server"
+              exit 1
           }
 
           # Main installation
@@ -599,20 +763,29 @@ jobs:
             port: 8080
             mode: release
 
+          zeek:
+            log_dir: /var/spool/zeek
+            script_dir: /app/zeek-scripts
+            interface: eth0
+
           database:
             type: postgres
-            dsn: "host=postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
+            dsn: "host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
 
           redis:
-            addr: redis:6379
+            addr: nta-redis:6379
             password: ""
             db: 0
 
           security:
             jwt_secret: "CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG"
             enable_tls: false
+            tls_cert_file: ""
+            tls_key_file: ""
             rate_limit_requests: 100
             rate_limit_window: 60
+            allowed_origins:
+              - "*"
 
           detection:
             scan:
@@ -626,8 +799,21 @@ jobs:
               enabled: true
               contamination: 0.01
 
+          threat_intel:
+            sources:
+              - name: threatfox
+                url: https://threatfox-api.abuse.ch/api/v1/
+                api_key: ""
+                enabled: true
+            update_interval: 3600
+            local_feed_path: /app/config/threat_feed.json
+
+          license:
+            license_file: /app/config/license.key
+            public_key_file: /app/config/public.pem
+
           backup:
-            enabled: true
+            enabled: false
             backup_dir: /app/backups
             interval_hours: 24
             retention_days: 7
