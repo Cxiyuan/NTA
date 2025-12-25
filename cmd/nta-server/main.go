@@ -105,22 +105,49 @@ func main() {
 		
 		// Create default tenant
 		defaultTenant := models.Tenant{
+			TenantID:    "default",
 			Name:        "Default",
 			Description: "Default tenant",
 			Status:      models.StatusActive,
+			MaxProbes:   100,
+			MaxAssets:   10000,
 		}
 		if err := db.Create(&defaultTenant).Error; err != nil {
 			logger.Errorf("Failed to create default tenant: %v", err)
+		} else {
+			logger.Infof("Created default tenant (ID: %s)", defaultTenant.TenantID)
 		}
 		
 		// Create admin role
 		adminRole := models.Role{
-			Name:        "admin",
+			Name:        models.RoleAdmin,
 			Description: "Administrator role with full permissions",
-			TenantID:    defaultTenant.ID,
+			Permissions: "*:*", // All permissions
 		}
 		if err := db.Create(&adminRole).Error; err != nil {
 			logger.Errorf("Failed to create admin role: %v", err)
+		} else {
+			logger.Infof("Created admin role (ID: %d)", adminRole.ID)
+		}
+		
+		// Create analyst role
+		analystRole := models.Role{
+			Name:        models.RoleAnalyst,
+			Description: "Analyst role with analysis permissions",
+			Permissions: "alerts:read,alerts:update,assets:read,threats:read,reports:generate",
+		}
+		if err := db.Create(&analystRole).Error; err != nil {
+			logger.Errorf("Failed to create analyst role: %v", err)
+		}
+		
+		// Create viewer role
+		viewerRole := models.Role{
+			Name:        models.RoleViewer,
+			Description: "Viewer role with read-only permissions",
+			Permissions: "alerts:read,assets:read,threats:read,reports:read",
+		}
+		if err := db.Create(&viewerRole).Error; err != nil {
+			logger.Errorf("Failed to create viewer role: %v", err)
 		}
 		
 		// Create default admin user
@@ -129,23 +156,29 @@ func main() {
 			Username:     "admin",
 			Email:        "admin@nta.local",
 			PasswordHash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // "admin"
-			TenantID:     defaultTenant.ID,
+			TenantID:     defaultTenant.TenantID,
 			Status:       models.StatusActive,
 		}
 		if err := db.Create(&adminUser).Error; err != nil {
 			logger.Errorf("Failed to create admin user: %v", err)
 		} else {
-			logger.Info("Default admin user created (username: admin, password: admin)")
+			logger.Info("Created admin user (username: admin, password: admin)")
 		}
 		
 		// Assign admin role to admin user
 		userRole := models.UserRole{
-			UserID: adminUser.ID,
-			RoleID: adminRole.ID,
+			UserID:   adminUser.ID,
+			RoleID:   adminRole.ID,
+			TenantID: defaultTenant.TenantID,
 		}
 		if err := db.Create(&userRole).Error; err != nil {
 			logger.Errorf("Failed to assign admin role: %v", err)
+		} else {
+			logger.Info("Assigned admin role to admin user")
 		}
+		
+		logger.Info("✓ Database initialization completed successfully")
+		logger.Warn("IMPORTANT: Please change the default admin password after first login!")
 	}
 
 	// Initialize Redis
