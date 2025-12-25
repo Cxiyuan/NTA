@@ -97,6 +97,57 @@ func main() {
 		&models.PCAPSession{},
 	)
 
+	// Initialize default admin user if not exists
+	var userCount int64
+	db.Model(&models.User{}).Count(&userCount)
+	if userCount == 0 {
+		logger.Info("No users found, creating default admin user")
+		
+		// Create default tenant
+		defaultTenant := models.Tenant{
+			Name:        "Default",
+			Description: "Default tenant",
+			Status:      models.StatusActive,
+		}
+		if err := db.Create(&defaultTenant).Error; err != nil {
+			logger.Errorf("Failed to create default tenant: %v", err)
+		}
+		
+		// Create admin role
+		adminRole := models.Role{
+			Name:        "admin",
+			Description: "Administrator role with full permissions",
+			TenantID:    defaultTenant.ID,
+		}
+		if err := db.Create(&adminRole).Error; err != nil {
+			logger.Errorf("Failed to create admin role: %v", err)
+		}
+		
+		// Create default admin user
+		// Password hash for "admin" using bcrypt
+		adminUser := models.User{
+			Username:     "admin",
+			Email:        "admin@nta.local",
+			PasswordHash: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // "admin"
+			TenantID:     defaultTenant.ID,
+			Status:       models.StatusActive,
+		}
+		if err := db.Create(&adminUser).Error; err != nil {
+			logger.Errorf("Failed to create admin user: %v", err)
+		} else {
+			logger.Info("Default admin user created (username: admin, password: admin)")
+		}
+		
+		// Assign admin role to admin user
+		userRole := models.UserRole{
+			UserID: adminUser.ID,
+			RoleID: adminRole.ID,
+		}
+		if err := db.Create(&userRole).Error; err != nil {
+			logger.Errorf("Failed to assign admin role: %v", err)
+		}
+	}
+
 	// Initialize Redis
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
