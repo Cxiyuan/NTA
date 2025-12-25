@@ -294,16 +294,24 @@ jobs:
               log_info "Configuring firewall..."
               
               if command -v firewall-cmd &> /dev/null; then
-                  firewall-cmd --permanent --add-port=80/tcp
-                  firewall-cmd --permanent --add-port=3000/tcp
-                  firewall-cmd --permanent --add-port=9090/tcp
-                  firewall-cmd --reload
-                  log_info "Firewall configured (firewalld) ✓"
+                  if systemctl is-active --quiet firewalld; then
+                      firewall-cmd --permanent --add-port=80/tcp 2>/dev/null || log_warn "Failed to add port 80"
+                      firewall-cmd --permanent --add-port=3000/tcp 2>/dev/null || log_warn "Failed to add port 3000"
+                      firewall-cmd --permanent --add-port=9090/tcp 2>/dev/null || log_warn "Failed to add port 9090"
+                      firewall-cmd --reload 2>/dev/null || log_warn "Failed to reload firewall"
+                      log_info "Firewall configured (firewalld) ✓"
+                  else
+                      log_warn "firewalld service is not running, skipping firewall configuration"
+                  fi
               elif command -v ufw &> /dev/null; then
-                  ufw allow 80/tcp
-                  ufw allow 3000/tcp
-                  ufw allow 9090/tcp
-                  log_info "Firewall configured (ufw) ✓"
+                  if systemctl is-active --quiet ufw 2>/dev/null || ufw status 2>/dev/null | grep -q "Status: active"; then
+                      ufw allow 80/tcp 2>/dev/null || log_warn "Failed to add port 80"
+                      ufw allow 3000/tcp 2>/dev/null || log_warn "Failed to add port 3000"
+                      ufw allow 9090/tcp 2>/dev/null || log_warn "Failed to add port 9090"
+                      log_info "Firewall configured (ufw) ✓"
+                  else
+                      log_warn "ufw service is not active, skipping firewall configuration"
+                  fi
               else
                   log_warn "No firewall detected, skipping"
               fi
@@ -593,10 +601,10 @@ jobs:
 
           database:
             type: postgres
-            dsn: "host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
+            dsn: "host=postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
 
           redis:
-            addr: nta-redis:6379
+            addr: redis:6379
             password: ""
             db: 0
 
