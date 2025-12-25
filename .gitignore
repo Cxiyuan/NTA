@@ -72,7 +72,7 @@ ENV/
 
 # Reports
 /var/log/zeek/reports/
-*.html
+reports/*.html
 *.png
 
 # Temporary files
