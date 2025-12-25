@@ -51,6 +51,8 @@ func main() {
 	// Load configuration
 	logger.Infof("Loading configuration from: %s", *configFile)
 	
+	var cfg *config.Config
+	
 	// Check if config file exists
 	if _, err := os.Stat(*configFile); os.IsNotExist(err) {
 		logger.Errorf("Configuration file not found: %s", *configFile)
