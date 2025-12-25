@@ -6,7 +6,7 @@ ARG GIT_COMMIT
 
 WORKDIR /build
 
-RUN apk add --no-cache git make gcc musl-dev postgresql-dev
+RUN apk add --no-cache git make gcc musl-dev postgresql-dev libpcap-dev
 
 COPY . .
 RUN go mod download && go mod tidy
