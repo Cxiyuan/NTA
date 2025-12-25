@@ -49,10 +49,24 @@ func main() {
 	logger.Info("Starting NTA Server...")
 
 	// Load configuration
-	cfg, err := config.LoadConfig(*configFile)
-	if err != nil {
-		logger.Warnf("Failed to load config file, using defaults: %v", err)
+	logger.Infof("Loading configuration from: %s", *configFile)
+	
+	// Check if config file exists
+	if _, err := os.Stat(*configFile); os.IsNotExist(err) {
+		logger.Errorf("Configuration file not found: %s", *configFile)
+		logger.Warnf("Using default configuration (this will use localhost for database)")
 		cfg = config.DefaultConfig()
+	} else {
+		cfg, err = config.LoadConfig(*configFile)
+		if err != nil {
+			logger.Warnf("Failed to load config file: %v", err)
+			logger.Warnf("Using default configuration")
+			cfg = config.DefaultConfig()
+		} else {
+			logger.Infof("Configuration loaded successfully")
+			logger.Infof("Database DSN: %s", cfg.Database.DSN)
+			logger.Infof("Redis Address: %s", cfg.Redis.Addr)
+		}
 	}
 
 	// Initialize database

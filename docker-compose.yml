@@ -46,6 +46,7 @@ services:
       - "8080:8080"
     environment:
       - TZ=Asia/Shanghai
+    command: ["-config", "/app/config/nta.yaml", "-log-level", "info"]
     volumes:
       - ./config:/app/config:ro
       - nta-data:/app/data

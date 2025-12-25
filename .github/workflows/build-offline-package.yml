@@ -395,6 +395,24 @@ jobs:
                   exit 1
               fi
               
+              # Verify config content
+              log_info "Verifying configuration..."
+              if grep -q "host=localhost" config/nta.yaml; then
+                  log_error "Configuration contains 'host=localhost' - this will fail in Docker"
+                  log_error "Expected 'host=nta-postgres'"
+                  cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
+                  exit 1
+              fi
+              if grep -q "addr: localhost:6379" config/nta.yaml; then
+                  log_error "Configuration contains 'addr: localhost:6379' - this will fail in Docker"
+                  log_error "Expected 'addr: nta-redis:6379'"
+                  cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
+                  exit 1
+              fi
+              log_info "Configuration verified ✓"
+              log_info "  Database: $(grep 'dsn:' config/nta.yaml | head -1)"
+              log_info "  Redis:    $(grep 'addr:' config/nta.yaml | head -1)"
+              
               export VERSION="${VERSION:-dev}"
               export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
               export GIT_COMMIT="${GIT_COMMIT:-unknown}"
