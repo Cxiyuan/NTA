@@ -165,10 +165,10 @@ jobs:
               tar xzf docker-${DOCKER_VERSION}.tgz
               
               # Copy binaries
-              sudo cp docker/* /usr/bin/
+              cp docker/* /usr/bin/
               
               # Create systemd service
-              sudo tee /etc/systemd/system/docker.service > /dev/null <<'DOCKER_SERVICE'
+              tee /etc/systemd/system/docker.service > /dev/null <<'DOCKER_SERVICE'
           [Unit]
           Description=Docker Application Container Engine
           Documentation=https://docs.docker.com
@@ -197,7 +197,7 @@ jobs:
           DOCKER_SERVICE
               
               # Create docker socket
-              sudo tee /etc/systemd/system/docker.socket > /dev/null <<'DOCKER_SOCKET'
+              tee /etc/systemd/system/docker.socket > /dev/null <<'DOCKER_SOCKET'
           [Unit]
           Description=Docker Socket for the API
           PartOf=docker.service
@@ -216,13 +216,13 @@ jobs:
               if ! command -v containerd &> /dev/null; then
                   log_info "Installing containerd..."
                   if [ -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz" ]; then
-                      sudo tar -xz -C /usr/local -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz"
+                      tar -xz -C /usr/local -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz"
                   else
                       log_error "containerd.tar.gz not found in docker-packages/"
                       exit 1
                   fi
                   
-                  sudo tee /etc/systemd/system/containerd.service > /dev/null <<'CONTAINERD_SERVICE'
+                  tee /etc/systemd/system/containerd.service > /dev/null <<'CONTAINERD_SERVICE'
           [Unit]
           Description=containerd container runtime
           Documentation=https://containerd.io
@@ -249,13 +249,13 @@ jobs:
               # Create docker group
               if ! getent group docker > /dev/null 2>&1; then
                   log_info "Creating docker group..."
-                  sudo groupadd docker
+                  groupadd docker
               fi
               
               # Start services
-              sudo systemctl daemon-reload
-              sudo systemctl enable containerd docker.socket docker
-              sudo systemctl start containerd docker.socket docker
+              systemctl daemon-reload
+              systemctl enable containerd docker.socket docker
+              systemctl start containerd docker.socket docker
               
               log_info "Docker installed successfully ✓"
           }
@@ -270,8 +270,8 @@ jobs:
               
               log_info "Installing Docker Compose $COMPOSE_VERSION..."
               
-              sudo cp "$SCRIPT_DIR/docker-packages/docker-compose" /usr/local/bin/docker-compose
-              sudo chmod +x /usr/local/bin/docker-compose
+              cp "$SCRIPT_DIR/docker-packages/docker-compose" /usr/local/bin/docker-compose
+              chmod +x /usr/local/bin/docker-compose
               
               log_info "Docker Compose installed successfully ✓"
           }
@@ -283,7 +283,7 @@ jobs:
               cd "$SCRIPT_DIR/images"
               for image in *.tar; do
                   log_info "Loading $image..."
-                  sudo docker load -i "$image"
+                  docker load -i "$image"
               done
               
               log_info "All images loaded successfully ✓"
@@ -294,15 +294,15 @@ jobs:
               log_info "Configuring firewall..."
               
               if command -v firewall-cmd &> /dev/null; then
-                  sudo firewall-cmd --permanent --add-port=80/tcp
-                  sudo firewall-cmd --permanent --add-port=3000/tcp
-                  sudo firewall-cmd --permanent --add-port=9090/tcp
-                  sudo firewall-cmd --reload
+                  firewall-cmd --permanent --add-port=80/tcp
+                  firewall-cmd --permanent --add-port=3000/tcp
+                  firewall-cmd --permanent --add-port=9090/tcp
+                  firewall-cmd --reload
                   log_info "Firewall configured (firewalld) ✓"
               elif command -v ufw &> /dev/null; then
-                  sudo ufw allow 80/tcp
-                  sudo ufw allow 3000/tcp
-                  sudo ufw allow 9090/tcp
+                  ufw allow 80/tcp
+                  ufw allow 3000/tcp
+                  ufw allow 9090/tcp
                   log_info "Firewall configured (ufw) ✓"
               else
                   log_warn "No firewall detected, skipping"
@@ -337,7 +337,7 @@ jobs:
               export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
               export GIT_COMMIT="${GIT_COMMIT:-unknown}"
               
-              sudo docker-compose up -d
+              docker-compose up -d
               
               log_info "NTA deployed successfully ✓"
           }
