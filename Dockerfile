@@ -10,11 +10,11 @@ RUN apk add --no-cache git make gcc musl-dev postgresql-dev
 
 COPY go.mod ./
 COPY . .
-RUN go mod download && go mod tidy
+RUN go mod download && go mod tidy && go mod vendor
 
-RUN CGO_ENABLED=1 GOOS=linux go build -v \
+RUN CGO_ENABLED=1 GOOS=linux go build -v -mod=vendor \
     -ldflags="-w -s -X main.Version=${VERSION} -X main.BuildTime=${BUILD_TIME} -X main.GitCommit=${GIT_COMMIT}" \
-    -o nta-server ./cmd/nta-server 2>&1 || (cat /build/go/pkg/mod/cache/download/sumdb/sum.golang.org/latest 2>/dev/null; exit 1)
+    -o nta-server ./cmd/nta-server
 
 FROM alpine:3.18
 
