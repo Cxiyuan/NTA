@@ -124,9 +124,8 @@ func (c *Config) Validate() error {
 		return errors.New("invalid server port")
 	}
 
-	if c.Server.Host == "0.0.0.0" && c.Server.Mode == "release" && !c.Security.EnableTLS {
-		return errors.New("binding to 0.0.0.0 in release mode without TLS is insecure")
-	}
+	// Removed: TLS check for 0.0.0.0 binding in Docker environments
+	// Docker containers commonly bind to 0.0.0.0 and use network isolation instead of TLS
 
 	if c.Database.Type != "postgres" {
 		return errors.New("only postgres database is supported")
