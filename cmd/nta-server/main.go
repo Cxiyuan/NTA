@@ -255,7 +255,7 @@ func main() {
 	notifyService := notification.NewService(db, logger)
 	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
 	zeekManager := zeek.NewManager(db, logger)
-	zeekParser := zeek.NewLogParser("/opt/zeek/logs", logger)
+	_ = zeek.NewLogParser("/opt/zeek/logs", logger)
 
 	// Cleanup old zeek logs periodically
 	go func() {
