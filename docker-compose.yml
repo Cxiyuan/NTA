@@ -119,7 +119,7 @@ services:
       - alert-service
 
   consul:
-    image: consul:1.17
+    image: hashicorp/consul:1.17
     container_name: nta-consul
     restart: unless-stopped
     ports:
