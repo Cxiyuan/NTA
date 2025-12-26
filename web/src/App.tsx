@@ -9,6 +9,7 @@ import Probes from './pages/Probes'
 import BuiltinProbe from './pages/BuiltinProbe'
 import Settings from './pages/Settings'
 import AdvancedDetection from './pages/AdvancedDetection'
+import StreamProcessing from './pages/StreamProcessing'
 import PcapAnalysis from './pages/PcapAnalysis'
 import AuditLog from './pages/AuditLog'
 import UserManagement from './pages/UserManagement'
@@ -33,6 +34,7 @@ function App() {
         <Route path="assets" element={<Assets />} />
         <Route path="threat-intel" element={<ThreatIntel />} />
         <Route path="advanced-detection" element={<AdvancedDetection />} />
+        <Route path="stream-processing" element={<StreamProcessing />} />
         <Route path="pcap-analysis" element={<PcapAnalysis />} />
         <Route path="reports" element={<Reports />} />
         <Route path="probes" element={<Probes />} />

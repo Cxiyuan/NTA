@@ -15,6 +15,7 @@
 @load ./encrypted-traffic
 @load ./zeroday-detection
 @load ./attack-chain
+@load ./kafka-output
 
 module LateralMovement;
 

@@ -6,6 +6,7 @@ import (
 
 	"github.com/Cxiyuan/NTA/internal/asset"
 	"github.com/Cxiyuan/NTA/internal/audit"
+	"github.com/Cxiyuan/NTA/internal/kafka"
 	"github.com/Cxiyuan/NTA/internal/license"
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
@@ -36,6 +37,7 @@ type Server struct {
 	notifyService  *notification.Service
 	pcapStorage    *pcap.Storage
 	zeekManager    *zeek.Manager
+	kafkaManager   *kafka.Manager
 }
 
 // NewServer creates a new API server
@@ -51,6 +53,7 @@ func NewServer(
 	notifyService *notification.Service,
 	pcapStorage *pcap.Storage,
 	zeekManager *zeek.Manager,
+	kafkaManager *kafka.Manager,
 	jwtSecret string,
 ) *Server {
 	router := gin.Default()
@@ -71,6 +74,7 @@ func NewServer(
 		notifyService:  notifyService,
 		pcapStorage:    pcapStorage,
 		zeekManager:    zeekManager,
+		kafkaManager:   kafkaManager,
 	}
 
 	s.setupRoutes()
@@ -215,6 +219,10 @@ func (s *Server) setupRoutes() {
 		builtinProbe.GET("/logs/stats", s.getBuiltinProbeLogStats)
 		builtinProbe.GET("/interfaces", s.getBuiltinProbeInterfaces)
 	}
+
+	// Stream processing routes
+	streamHandlers := NewStreamProcessingHandlers(s.kafkaManager)
+	streamHandlers.RegisterRoutes(api)
 
 	api.GET("/license", s.authMiddleware.RequireRole("admin"), s.getLicenseInfo)
 	api.POST("/license/upload", s.authMiddleware.RequireRole("admin"), s.uploadLicense)

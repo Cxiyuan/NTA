@@ -42,9 +42,84 @@ jobs:
         run: |
           docker buildx build \
             --platform linux/amd64 \
-            -t nta-web:v1.0.0 \
+            -t nta-web:v2.0.0 \
             --output type=docker,dest=/tmp/nta-web.tar \
             ./web
+
+      - name: Build microservices images
+        run: |
+          # Auth Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-auth-service:v2.0.0 \
+            -f services/auth-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-auth-service.tar \
+            .
+          
+          # Asset Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-asset-service:v2.0.0 \
+            -f services/asset-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-asset-service.tar \
+            .
+          
+          # Detection Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-detection-service:v2.0.0 \
+            -f services/detection-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-detection-service.tar \
+            .
+          
+          # Alert Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-alert-service:v2.0.0 \
+            -f services/alert-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-alert-service.tar \
+            .
+          
+          # Report Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-report-service:v2.0.0 \
+            -f services/report-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-report-service.tar \
+            .
+          
+          # Notification Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-notification-service:v2.0.0 \
+            -f services/notification-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-notification-service.tar \
+            .
+          
+          # Probe Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-probe-service:v2.0.0 \
+            -f services/probe-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-probe-service.tar \
+            .
+          
+          # Intel Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-intel-service:v2.0.0 \
+            -f services/intel-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-intel-service.tar \
+            .
+
+      - name: Build Traefik image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-traefik:v2.0.0 \
+            -f docker/traefik/Dockerfile \
+            --output type=docker,dest=/tmp/nta-traefik.tar \
+            .
 
       - name: Build zeek image
         run: |
@@ -60,6 +135,11 @@ jobs:
           docker pull --platform linux/amd64 redis:7-alpine
           docker pull --platform linux/amd64 prom/prometheus:latest
           docker pull --platform linux/amd64 grafana/grafana:latest
+          docker pull --platform linux/amd64 bitnami/zookeeper:3.9
+          docker pull --platform linux/amd64 bitnami/kafka:3.6
+          docker pull --platform linux/amd64 flink:1.18-scala_2.12-java11
+          docker pull --platform linux/amd64 consul:1.17
+          docker pull --platform linux/amd64 jaegertracing/all-in-one:1.51
 
       - name: Save third-party images
         run: |
@@ -67,6 +147,11 @@ jobs:
           docker save redis:7-alpine -o /tmp/redis.tar
           docker save prom/prometheus:latest -o /tmp/prometheus.tar
           docker save grafana/grafana:latest -o /tmp/grafana.tar
+          docker save bitnami/zookeeper:3.9 -o /tmp/zookeeper.tar
+          docker save bitnami/kafka:3.6 -o /tmp/kafka.tar
+          docker save flink:1.18-scala_2.12-java11 -o /tmp/flink.tar
+          docker save consul:1.17 -o /tmp/consul.tar
+          docker save jaegertracing/all-in-one:1.51 -o /tmp/jaeger.tar
 
       - name: Download Docker offline packages
         run: |
@@ -862,14 +947,32 @@ jobs:
           mkdir -p /tmp/nta-deploy/images
           mkdir -p /tmp/nta-deploy/docker-packages
           
-          # Move images
+          # Move application images
           mv /tmp/nta-server.tar /tmp/nta-deploy/images/
           mv /tmp/nta-web.tar /tmp/nta-deploy/images/
           mv /tmp/nta-zeek.tar /tmp/nta-deploy/images/
+          
+          # Move microservices images
+          mv /tmp/nta-auth-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-asset-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-detection-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-alert-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-report-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-notification-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-probe-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-intel-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-traefik.tar /tmp/nta-deploy/images/
+          
+          # Move infrastructure images
           mv /tmp/postgres.tar /tmp/nta-deploy/images/
           mv /tmp/redis.tar /tmp/nta-deploy/images/
           mv /tmp/prometheus.tar /tmp/nta-deploy/images/
           mv /tmp/grafana.tar /tmp/nta-deploy/images/
+          mv /tmp/zookeeper.tar /tmp/nta-deploy/images/
+          mv /tmp/kafka.tar /tmp/nta-deploy/images/
+          mv /tmp/flink.tar /tmp/nta-deploy/images/
+          mv /tmp/consul.tar /tmp/nta-deploy/images/
+          mv /tmp/jaeger.tar /tmp/nta-deploy/images/
           
           # Move docker packages
           mv /tmp/docker-packages/* /tmp/nta-deploy/docker-packages/

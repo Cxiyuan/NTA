@@ -256,6 +256,13 @@ func main() {
 	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
 	zeekManager := zeek.NewManager(db, logger)
 	_ = zeek.NewLogParser("/opt/zeek/logs", logger)
+	
+	// Initialize Kafka manager
+	kafkaManager := kafka.NewManager(
+		"http://localhost:9092",
+		"http://localhost:8081",
+		logger,
+	)
 
 	// Cleanup old zeek logs periodically
 	go func() {
@@ -323,6 +330,7 @@ func main() {
 		notifyService,
 		pcapStorage,
 		zeekManager,
+		kafkaManager,
 		cfg.Security.JWTSecret,
 	)
 

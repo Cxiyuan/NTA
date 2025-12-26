@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Card, Form, Input, Button, Table, Tag, Tabs, Space, message } from 'antd'
 import { SearchOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 
 export default function AdvancedDetection() {
   const [dgaForm] = Form.useForm()
@@ -19,7 +19,7 @@ export default function AdvancedDetection() {
   const checkDGA = async (values: any) => {
     setLoading(true)
     try {
-      const res = await axios.post('/api/v1/detection/dga', values)
+      const res = await apiClient.post('/api/v1/detection/dga', values)
       setDgaResult(res.data)
       if (res.data.is_dga) {
         message.warning(`检测到DGA域名！置信度: ${(res.data.confidence * 100).toFixed(1)}%`)
@@ -36,7 +36,7 @@ export default function AdvancedDetection() {
   const checkDNSTunnel = async (values: any) => {
     setLoading(true)
     try {
-      const res = await axios.post('/api/v1/detection/dns-tunnel', values)
+      const res = await apiClient.post('/api/v1/detection/dns-tunnel', values)
       setDnsTunnelResult(res.data)
       if (res.data.is_tunnel) {
         message.warning(`检测到DNS隧道！置信度: ${(res.data.confidence * 100).toFixed(1)}%`)
@@ -53,7 +53,7 @@ export default function AdvancedDetection() {
   const checkC2 = async (values: any) => {
     setLoading(true)
     try {
-      const res = await axios.post('/api/v1/detection/c2', values)
+      const res = await apiClient.post('/api/v1/detection/c2', values)
       setC2Result(res.data)
       if (res.data.is_c2) {
         message.warning(`检测到C2通信！类型: ${res.data.c2_type}，置信度: ${(res.data.confidence * 100).toFixed(1)}%`)
@@ -70,7 +70,7 @@ export default function AdvancedDetection() {
   const checkWebShell = async (values: any) => {
     setLoading(true)
     try {
-      const res = await axios.post('/api/v1/detection/webshell', values)
+      const res = await apiClient.post('/api/v1/detection/webshell', values)
       setWebshellResult(res.data)
       if (res.data.is_webshell) {
         message.error(`检测到WebShell！置信度: ${(res.data.confidence * 100).toFixed(1)}%`)

@@ -17,6 +17,7 @@ import {
   UserOutlined,
   SafetyCertificateOutlined,
   ClusterOutlined,
+  ThunderboltOutlined,
 } from '@ant-design/icons'
 
 const { Header, Sider, Content } = AntLayout
@@ -34,6 +35,7 @@ export default function Layout() {
     { key: '/assets', icon: <DatabaseOutlined />, label: '资产管理' },
     { key: '/threat-intel', icon: <GlobalOutlined />, label: '威胁情报' },
     { key: '/advanced-detection', icon: <SafetyOutlined />, label: '高级检测' },
+    { key: '/stream-processing', icon: <ThunderboltOutlined />, label: '流处理监控' },
     { key: '/pcap-analysis', icon: <FileSearchOutlined />, label: 'PCAP回溯' },
     { key: '/reports', icon: <FileTextOutlined />, label: '报表中心' },
     { 

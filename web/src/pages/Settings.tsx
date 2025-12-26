@@ -1,7 +1,7 @@
 import { Card, Form, Input, Button, Switch, message, Tabs, InputNumber, Select } from 'antd'
 import { useState, useEffect } from 'react'
 import { notificationAPI } from '../services/api'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 
 export default function Settings() {
   const [notifForm] = Form.useForm()
@@ -16,8 +16,8 @@ export default function Settings() {
   const loadSettings = async () => {
     try {
       const [notifRes, configRes] = await Promise.all([
-        axios.get('/api/v1/notifications/config'),
-        axios.get('/api/v1/config'),
+        apiClient.get('/api/v1/notifications/config'),
+        apiClient.get('/api/v1/config'),
       ])
       notifForm.setFieldsValue(notifRes.data)
       detectionForm.setFieldsValue(configRes.data.detection)
@@ -42,7 +42,7 @@ export default function Settings() {
   const handleDetectionSubmit = async (values: any) => {
     setLoading(true)
     try {
-      await axios.put('/api/v1/config/detection', values)
+      await apiClient.put('/api/v1/config/detection', values)
       message.success('保存成功')
     } catch (error) {
       message.error('保存失败')
@@ -54,7 +54,7 @@ export default function Settings() {
   const handleBackupSubmit = async (values: any) => {
     setLoading(true)
     try {
-      await axios.put('/api/v1/config/backup', values)
+      await apiClient.put('/api/v1/config/backup', values)
       message.success('保存成功')
     } catch (error) {
       message.error('保存失败')

@@ -1,0 +1,103 @@
+version: "2.4"
+
+http:
+  routers:
+    auth-service:
+      rule: "PathPrefix(`/api/v1/auth`) || PathPrefix(`/api/v1/users`) || PathPrefix(`/api/v1/roles`)"
+      service: auth-service
+      entryPoints:
+        - web
+    
+    asset-service:
+      rule: "PathPrefix(`/api/v1/assets`)"
+      service: asset-service
+      entryPoints:
+        - web
+    
+    detection-service:
+      rule: "PathPrefix(`/api/v1/detection`)"
+      service: detection-service
+      entryPoints:
+        - web
+    
+    alert-service:
+      rule: "PathPrefix(`/api/v1/alerts`)"
+      service: alert-service
+      entryPoints:
+        - web
+    
+    report-service:
+      rule: "PathPrefix(`/api/v1/reports`)"
+      service: report-service
+      entryPoints:
+        - web
+    
+    notification-service:
+      rule: "PathPrefix(`/api/v1/notifications`)"
+      service: notification-service
+      entryPoints:
+        - web
+    
+    probe-service:
+      rule: "PathPrefix(`/api/v1/probes`) || PathPrefix(`/api/v1/builtin-probe`)"
+      service: probe-service
+      entryPoints:
+        - web
+    
+    intel-service:
+      rule: "PathPrefix(`/api/v1/threat-intel`)"
+      service: intel-service
+      entryPoints:
+        - web
+    
+    stream-service:
+      rule: "PathPrefix(`/api/v1/stream`)"
+      service: stream-service
+      entryPoints:
+        - web
+
+  services:
+    auth-service:
+      loadBalancer:
+        servers:
+          - url: "http://auth-service:8081"
+    
+    asset-service:
+      loadBalancer:
+        servers:
+          - url: "http://asset-service:8082"
+    
+    detection-service:
+      loadBalancer:
+        servers:
+          - url: "http://detection-service:8083"
+    
+    alert-service:
+      loadBalancer:
+        servers:
+          - url: "http://alert-service:8084"
+    
+    report-service:
+      loadBalancer:
+        servers:
+          - url: "http://report-service:8085"
+    
+    notification-service:
+      loadBalancer:
+        servers:
+          - url: "http://notification-service:8086"
+    
+    probe-service:
+      loadBalancer:
+        servers:
+          - url: "http://probe-service:8087"
+    
+    intel-service:
+      loadBalancer:
+        servers:
+          - url: "http://intel-service:8088"
+    
+    stream-service:
+      loadBalancer:
+        servers:
+          - url: "http://nta-server:8080"

@@ -13,6 +13,7 @@ services:
       - POSTGRES_PASSWORD=nta_password
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - ./scripts/init-databases.sh:/docker-entrypoint-initdb.d/init-databases.sh:ro
     networks:
       - nta-network
     healthcheck:
@@ -85,23 +86,207 @@ services:
       - ZEEK_INTERFACE=eth0
       - ZEEK_BPF_FILTER=
       - ZEEK_SCRIPTS_DIR=/opt/zeek/share/zeek/site/nta
+      - KAFKA_BROKERS=localhost:9093
     volumes:
       - zeek-logs:/opt/zeek/logs
       - zeek-spool:/opt/zeek/spool
       - ./zeek-scripts:/opt/zeek/share/zeek/site/nta:ro
     depends_on:
-      - nta-server
+      kafka:
+        condition: service_healthy
 
-  nta-web:
-    image: nta-web:v1.0.0
-    container_name: nta-web
+  traefik:
+    build:
+      context: .
+      dockerfile: docker/traefik/Dockerfile
+    image: nta-traefik:v2.0.0
+    container_name: nta-traefik
     restart: unless-stopped
     ports:
       - "80:80"
+      - "8888:8080"
+    command:
+      - "--api.insecure=true"
+      - "--providers.file.directory=/etc/traefik/dynamic"
+      - "--providers.file.watch=true"
+      - "--entrypoints.web.address=:80"
     networks:
       - nta-network
     depends_on:
-      - nta-server
+      - auth-service
+      - asset-service
+      - detection-service
+      - alert-service
+
+  consul:
+    image: consul:1.17
+    container_name: nta-consul
+    restart: unless-stopped
+    ports:
+      - "8500:8500"
+    command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+    networks:
+      - nta-network
+    volumes:
+      - consul-data:/consul/data
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.51
+    container_name: nta-jaeger
+    restart: unless-stopped
+    ports:
+      - "6831:6831/udp"
+      - "16686:16686"
+    environment:
+      - COLLECTOR_ZIPKIN_HOST_PORT=:9411
+    networks:
+      - nta-network
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: services/auth-service/Dockerfile
+    image: nta-auth-service:v2.0.0
+    container_name: nta-auth-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=nta
+      - DB_PASS=nta_password
+      - DB_NAME=auth_db
+      - JWT_SECRET=nta-secret-key
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  asset-service:
+    build:
+      context: .
+      dockerfile: services/asset-service/Dockerfile
+    image: nta-asset-service:v2.0.0
+    container_name: nta-asset-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=nta
+      - DB_PASS=nta_password
+      - DB_NAME=asset_db
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  detection-service:
+    build:
+      context: .
+      dockerfile: services/detection-service/Dockerfile
+    image: nta-detection-service:v2.0.0
+    container_name: nta-detection-service
+    restart: unless-stopped
+    ports:
+      - "8083:8083"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+
+  alert-service:
+    build:
+      context: .
+      dockerfile: services/alert-service/Dockerfile
+    image: nta-alert-service:v2.0.0
+    container_name: nta-alert-service
+    restart: unless-stopped
+    ports:
+      - "8084:8084"
+    environment:
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_USER=nta
+      - DB_PASS=nta_password
+      - DB_NAME=alert_db
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  report-service:
+    build:
+      context: .
+      dockerfile: services/report-service/Dockerfile
+    image: nta-report-service:v2.0.0
+    container_name: nta-report-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+
+  notification-service:
+    build:
+      context: .
+      dockerfile: services/notification-service/Dockerfile
+    image: nta-notification-service:v2.0.0
+    container_name: nta-notification-service
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+
+  probe-service:
+    build:
+      context: .
+      dockerfile: services/probe-service/Dockerfile
+    image: nta-probe-service:v2.0.0
+    container_name: nta-probe-service
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+
+  intel-service:
+    build:
+      context: .
+      dockerfile: services/intel-service/Dockerfile
+    image: nta-intel-service:v2.0.0
+    container_name: nta-intel-service
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+
+  nta-web:
+    image: nta-web:v2.0.0
+    container_name: nta-web
+    restart: unless-stopped
+    networks:
+      - nta-network
+    depends_on:
+      - traefik
 
   prometheus:
     image: prom/prometheus:latest
@@ -136,6 +321,123 @@ services:
     depends_on:
       - prometheus
 
+  zookeeper:
+    image: bitnami/zookeeper:3.9
+    container_name: nta-zookeeper
+    restart: unless-stopped
+    ports:
+      - "2181:2181"
+    environment:
+      - ALLOW_ANONYMOUS_LOGIN=yes
+      - ZOO_TICK_TIME=2000
+      - ZOO_INIT_LIMIT=10
+      - ZOO_SYNC_LIMIT=5
+    volumes:
+      - zookeeper-data:/bitnami/zookeeper
+    networks:
+      - nta-network
+    healthcheck:
+      test: ["CMD-SHELL", "echo ruok | nc localhost 2181 | grep imok"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+
+  kafka:
+    image: bitnami/kafka:3.6
+    container_name: nta-kafka
+    restart: unless-stopped
+    ports:
+      - "9092:9092"
+      - "9093:9093"
+    environment:
+      - KAFKA_CFG_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_CFG_LISTENERS=PLAINTEXT://:9092,EXTERNAL://:9093
+      - KAFKA_CFG_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,EXTERNAL://localhost:9093
+      - KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      - KAFKA_CFG_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE=true
+      - KAFKA_CFG_LOG_RETENTION_HOURS=168
+      - KAFKA_CFG_LOG_RETENTION_BYTES=10737418240
+      - KAFKA_CFG_NUM_PARTITIONS=8
+      - KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=1
+      - ALLOW_PLAINTEXT_LISTENER=yes
+    volumes:
+      - kafka-data:/bitnami/kafka
+    networks:
+      - nta-network
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions.sh --bootstrap-server localhost:9092"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+
+  flink-jobmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: nta-flink-jobmanager
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+      - ./flink-jobs:/opt/flink/jobs:ro
+    networks:
+      - nta-network
+    command: jobmanager
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8081/overview || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  flink-taskmanager:
+    image: flink:1.18-scala_2.12-java11
+    container_name: nta-flink-taskmanager
+    restart: unless-stopped
+    environment:
+      - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
+      - FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager
+      - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=4
+    volumes:
+      - flink-checkpoints:/opt/flink/checkpoints
+      - flink-savepoints:/opt/flink/savepoints
+    networks:
+      - nta-network
+    depends_on:
+      flink-jobmanager:
+        condition: service_healthy
+    command: taskmanager
+
+  kafka-consumer:
+    image: nta-kafka-consumer:v1.0.0
+    container_name: nta-kafka-consumer
+    restart: unless-stopped
+    environment:
+      - KAFKA_BROKERS=kafka:9092
+      - POSTGRES_HOST=postgres
+      - POSTGRES_PORT=5432
+      - POSTGRES_DB=nta
+      - POSTGRES_USER=nta
+      - POSTGRES_PASSWORD=nta_password
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
 networks:
   nta-network:
     driver: bridge
@@ -151,3 +453,8 @@ volumes:
   grafana-data:
   zeek-logs:
   zeek-spool:
+  zookeeper-data:
+  kafka-data:
+  flink-checkpoints:
+  flink-savepoints:
+  consul-data:

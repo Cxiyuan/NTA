@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Table, Card, Button, Space, Modal, Form, Input, Select, message, Tag, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, LockOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 import dayjs from 'dayjs'
 
 export default function UserManagement() {
@@ -20,7 +20,7 @@ export default function UserManagement() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/users')
+      const res = await apiClient.get('/api/v1/users')
       setData(res.data)
     } catch (error) {
       message.error('加载失败')
@@ -31,7 +31,7 @@ export default function UserManagement() {
 
   const loadRoles = async () => {
     try {
-      const res = await axios.get('/api/v1/roles')
+      const res = await apiClient.get('/api/v1/roles')
       setRoles(res.data)
     } catch (error) {
       console.error('Failed to load roles')

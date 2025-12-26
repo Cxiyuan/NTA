@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Table, Card, Button, Space, Modal, Form, Input, message, Tag, Popconfirm, Drawer, Tree } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, SafetyOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 import type { DataNode } from 'antd/es/tree'
 
 export default function RoleManagement() {
@@ -21,7 +21,7 @@ export default function RoleManagement() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/roles')
+      const res = await apiClient.get('/api/v1/roles')
       setData(res.data)
     } catch (error) {
       message.error('加载失败')
@@ -47,7 +47,7 @@ export default function RoleManagement() {
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(`/api/v1/roles/${id}`)
+      await apiClient.delete(`/api/v1/roles/${id}`)
       message.success('删除成功')
       loadData()
     } catch (error) {
@@ -69,10 +69,10 @@ export default function RoleManagement() {
   const handleSubmit = async (values: any) => {
     try {
       if (editingRole) {
-        await axios.put(`/api/v1/roles/${editingRole.id}`, values)
+        await apiClient.put(`/api/v1/roles/${editingRole.id}`, values)
         message.success('更新成功')
       } else {
-        await axios.post('/api/v1/roles', values)
+        await apiClient.post('/api/v1/roles', values)
         message.success('创建成功')
       }
       setModalVisible(false)
@@ -87,7 +87,7 @@ export default function RoleManagement() {
       // 验证JSON格式
       JSON.parse(values.permissions)
       
-      await axios.put(`/api/v1/roles/${selectedRole.id}/permissions`, {
+      await apiClient.put(`/api/v1/roles/${selectedRole.id}/permissions`, {
         permissions: values.permissions,
       })
       message.success('权限更新成功')

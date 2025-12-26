@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Table, Card, Button, Space, Modal, Form, Input, InputNumber, Select, message, Tag, Popconfirm } from 'antd'
 import { PlusOutlined, EditOutlined, DeleteOutlined, TeamOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 import dayjs from 'dayjs'
 
 export default function TenantManagement() {
@@ -21,7 +21,7 @@ export default function TenantManagement() {
   const loadData = async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/tenants')
+      const res = await apiClient.get('/api/v1/tenants')
       setData(res.data)
     } catch (error) {
       message.error('加载失败')
@@ -32,7 +32,7 @@ export default function TenantManagement() {
 
   const loadTenantUsers = async (tenantId: string) => {
     try {
-      const res = await axios.get(`/api/v1/tenants/${tenantId}/users`)
+      const res = await apiClient.get(`/api/v1/tenants/${tenantId}/users`)
       setTenantUsers(res.data)
     } catch (error) {
       message.error('获取租户用户失败')
@@ -53,7 +53,7 @@ export default function TenantManagement() {
 
   const handleDelete = async (id: number) => {
     try {
-      await axios.delete(`/api/v1/tenants/${id}`)
+      await apiClient.delete(`/api/v1/tenants/${id}`)
       message.success('删除成功')
       loadData()
     } catch (error) {
@@ -70,10 +70,10 @@ export default function TenantManagement() {
   const handleSubmit = async (values: any) => {
     try {
       if (editingTenant) {
-        await axios.put(`/api/v1/tenants/${editingTenant.id}`, values)
+        await apiClient.put(`/api/v1/tenants/${editingTenant.id}`, values)
         message.success('更新成功')
       } else {
-        await axios.post('/api/v1/tenants', values)
+        await apiClient.post('/api/v1/tenants', values)
         message.success('创建成功')
       }
       setModalVisible(false)

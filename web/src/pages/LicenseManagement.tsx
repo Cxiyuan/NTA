@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react'
 import { Card, Descriptions, Tag, Button, Upload, message, Progress, Alert, Space } from 'antd'
 import { UploadOutlined, CheckCircleOutlined, CloseCircleOutlined, InfoCircleOutlined } from '@ant-design/icons'
 import type { UploadProps } from 'antd'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 import dayjs from 'dayjs'
 
 export default function LicenseManagement() {
@@ -16,7 +16,7 @@ export default function LicenseManagement() {
   const loadLicenseInfo = async () => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/license')
+      const res = await apiClient.get('/api/v1/license')
       setLicenseInfo(res.data)
     } catch (error) {
       message.error('获取License信息失败')

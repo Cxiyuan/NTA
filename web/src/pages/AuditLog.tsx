@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react'
 import { Table, Card, Form, Input, Select, DatePicker, Button, Space, Tag, Modal, Descriptions, message } from 'antd'
 import { SearchOutlined, EyeOutlined, CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons'
-import axios from 'axios'
+import apiClient from '../utils/apiClient'
 import dayjs from 'dayjs'
 
 export default function AuditLog() {
@@ -18,7 +18,7 @@ export default function AuditLog() {
   const loadData = async (filters = {}) => {
     setLoading(true)
     try {
-      const res = await axios.get('/api/v1/audit', { params: filters })
+      const res = await apiClient.get('/api/v1/audit', { params: filters })
       setData(res.data)
     } catch (error) {
       message.error('加载失败')
