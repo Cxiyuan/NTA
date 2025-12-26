@@ -224,9 +224,6 @@ services:
         condition: service_healthy
 
   report-service:
-    build:
-      context: .
-      dockerfile: services/report-service/Dockerfile
     image: nta-report-service:v2.0.0
     container_name: nta-report-service
     restart: unless-stopped
@@ -238,9 +235,6 @@ services:
       - nta-network
 
   notification-service:
-    build:
-      context: .
-      dockerfile: services/notification-service/Dockerfile
     image: nta-notification-service:v2.0.0
     container_name: nta-notification-service
     restart: unless-stopped
@@ -252,9 +246,6 @@ services:
       - nta-network
 
   probe-service:
-    build:
-      context: .
-      dockerfile: services/probe-service/Dockerfile
     image: nta-probe-service:v2.0.0
     container_name: nta-probe-service
     restart: unless-stopped
@@ -266,9 +257,6 @@ services:
       - nta-network
 
   intel-service:
-    build:
-      context: .
-      dockerfile: services/intel-service/Dockerfile
     image: nta-intel-service:v2.0.0
     container_name: nta-intel-service
     restart: unless-stopped
@@ -414,9 +402,6 @@ services:
     command: taskmanager
 
   kafka-consumer:
-    build:
-      context: .
-      dockerfile: cmd/kafka-consumer/Dockerfile
     image: nta-kafka-consumer:v1.0.0
     container_name: nta-kafka-consumer
     restart: unless-stopped

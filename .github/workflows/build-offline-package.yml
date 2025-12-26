@@ -97,6 +97,38 @@ jobs:
             --output type=docker,dest=/tmp/nta-alert-service.tar \
             .
           
+          # Report Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-report-service:v2.0.0 \
+            -f services/report-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-report-service.tar \
+            .
+          
+          # Notification Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-notification-service:v2.0.0 \
+            -f services/notification-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-notification-service.tar \
+            .
+          
+          # Probe Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-probe-service:v2.0.0 \
+            -f services/probe-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-probe-service.tar \
+            .
+          
+          # Intel Service
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-intel-service:v2.0.0 \
+            -f services/intel-service/Dockerfile \
+            --output type=docker,dest=/tmp/nta-intel-service.tar \
+            .
+          
 
 
       - name: Build Traefik image
@@ -944,6 +976,10 @@ jobs:
           mv /tmp/nta-asset-service.tar /tmp/nta-deploy/images/
           mv /tmp/nta-detection-service.tar /tmp/nta-deploy/images/
           mv /tmp/nta-alert-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-report-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-notification-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-probe-service.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-intel-service.tar /tmp/nta-deploy/images/
           mv /tmp/nta-traefik.tar /tmp/nta-deploy/images/
           
           # Move infrastructure images
