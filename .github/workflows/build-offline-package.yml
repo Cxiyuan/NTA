@@ -209,15 +209,15 @@ jobs:
           NC='\033[0m'
 
           log_info() {
-              echo -e "${GREEN}[INFO]${NC} $1"
+              echo -e "${GREEN}[信息]${NC} $1"
           }
 
           log_warn() {
-              echo -e "${YELLOW}[WARN]${NC} $1"
+              echo -e "${YELLOW}[警告]${NC} $1"
           }
 
           log_error() {
-              echo -e "${RED}[ERROR]${NC} $1"
+              echo -e "${RED}[错误]${NC} $1"
           }
 
           # Detect OS
@@ -227,39 +227,39 @@ jobs:
                   OS=$ID
                   VERSION_ID=$VERSION_ID
               else
-                  log_error "Cannot detect OS"
+                  log_error "无法检测操作系统"
                   exit 1
               fi
               
-              log_info "Detected OS: $OS $VERSION_ID"
+              log_info "检测到操作系统: $OS $VERSION_ID"
           }
 
           # Check system requirements
           check_requirements() {
-              log_info "Checking system requirements..."
+              log_info "正在检查系统要求..."
               
               # Check CPU cores
               CPU_CORES=$(nproc)
               if [ "$CPU_CORES" -lt 2 ]; then
-                  log_warn "CPU cores: $CPU_CORES (recommended: >= 2)"
+                  log_warn "CPU 核心数: $CPU_CORES (推荐: >= 2)"
               else
-                  log_info "CPU cores: $CPU_CORES ✓"
+                  log_info "CPU 核心数: $CPU_CORES ✓"
               fi
               
               # Check memory
               TOTAL_MEM=$(free -g | awk '/^Mem:/{print $2}')
               if [ "$TOTAL_MEM" -lt 4 ]; then
-                  log_warn "Memory: ${TOTAL_MEM}GB (recommended: >= 4GB)"
+                  log_warn "内存: ${TOTAL_MEM}GB (推荐: >= 4GB)"
               else
-                  log_info "Memory: ${TOTAL_MEM}GB ✓"
+                  log_info "内存: ${TOTAL_MEM}GB ✓"
               fi
               
               # Check disk space
               DISK_SPACE=$(df -BG "$SCRIPT_DIR" | tail -1 | awk '{print $4}' | sed 's/G//')
               if [ "$DISK_SPACE" -lt 50 ]; then
-                  log_warn "Disk space: ${DISK_SPACE}GB (recommended: >= 50GB)"
+                  log_warn "磁盘空间: ${DISK_SPACE}GB (推荐: >= 50GB)"
               else
-                  log_info "Disk space: ${DISK_SPACE}GB ✓"
+                  log_info "磁盘空间: ${DISK_SPACE}GB ✓"
               fi
           }
 
@@ -267,11 +267,11 @@ jobs:
           install_docker() {
               if command -v docker &> /dev/null; then
                   INSTALLED_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-                  log_info "Docker already installed: $INSTALLED_VERSION"
+                  log_info "Docker 已安装: $INSTALLED_VERSION"
                   return 0
               fi
               
-              log_info "Installing Docker $DOCKER_VERSION..."
+              log_info "正在安装 Docker $DOCKER_VERSION..."
               
               cd "$SCRIPT_DIR/docker-packages"
               tar xzf docker-${DOCKER_VERSION}.tgz
@@ -326,11 +326,11 @@ jobs:
               
               # Install containerd
               if ! command -v containerd &> /dev/null; then
-                  log_info "Installing containerd..."
+                  log_info "正在安装 containerd..."
                   if [ -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz" ]; then
                       tar -xz -C /usr/local -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz"
                   else
-                      log_error "containerd.tar.gz not found in docker-packages/"
+                      log_error "docker-packages/ 目录下未找到 containerd.tar.gz"
                       exit 1
                   fi
                   
@@ -360,7 +360,7 @@ jobs:
               
               # Create docker group
               if ! getent group docker > /dev/null 2>&1; then
-                  log_info "Creating docker group..."
+                  log_info "正在创建 docker 用户组..."
                   groupadd docker
               fi
               
@@ -369,75 +369,75 @@ jobs:
               systemctl enable containerd docker.socket docker
               systemctl start containerd docker.socket docker
               
-              log_info "Docker installed successfully ✓"
+              log_info "Docker 安装成功 ✓"
           }
 
           # Install Docker Compose
           install_docker_compose() {
               if command -v docker-compose &> /dev/null; then
                   INSTALLED_VERSION=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-                  log_info "Docker Compose already installed: $INSTALLED_VERSION"
+                  log_info "Docker Compose 已安装: $INSTALLED_VERSION"
                   return 0
               fi
               
-              log_info "Installing Docker Compose $COMPOSE_VERSION..."
+              log_info "正在安装 Docker Compose $COMPOSE_VERSION..."
               
               cp "$SCRIPT_DIR/docker-packages/docker-compose" /usr/local/bin/docker-compose
               chmod +x /usr/local/bin/docker-compose
               
-              log_info "Docker Compose installed successfully ✓"
+              log_info "Docker Compose 安装成功 ✓"
           }
 
           # Load Docker images
           load_images() {
-              log_info "Loading Docker images (this may take a few minutes)..."
+              log_info "正在加载 Docker 镜像 (可能需要几分钟)..."
               
               cd "$SCRIPT_DIR/images"
               for image in *.tar; do
-                  log_info "Loading $image..."
+                  log_info "正在加载 $image..."
                   docker load -i "$image"
               done
               
-              log_info "All images loaded successfully ✓"
+              log_info "所有镜像加载成功 ✓"
           }
 
           # Configure firewall
           configure_firewall() {
-              log_info "Configuring firewall..."
+              log_info "正在配置防火墙..."
               
               if command -v firewall-cmd &> /dev/null; then
                   if systemctl is-active --quiet firewalld; then
-                      firewall-cmd --permanent --add-port=80/tcp 2>/dev/null || log_warn "Failed to add port 80"
-                      firewall-cmd --permanent --add-port=3000/tcp 2>/dev/null || log_warn "Failed to add port 3000"
-                      firewall-cmd --permanent --add-port=9090/tcp 2>/dev/null || log_warn "Failed to add port 9090"
-                      firewall-cmd --reload 2>/dev/null || log_warn "Failed to reload firewall"
-                      log_info "Firewall configured (firewalld) ✓"
+                      firewall-cmd --permanent --add-port=80/tcp 2>/dev/null || log_warn "添加端口失败 80"
+                      firewall-cmd --permanent --add-port=3000/tcp 2>/dev/null || log_warn "添加端口失败 3000"
+                      firewall-cmd --permanent --add-port=9090/tcp 2>/dev/null || log_warn "添加端口失败 9090"
+                      firewall-cmd --reload 2>/dev/null || log_warn "重载防火墙失败"
+                      log_info "防火墙配置成功 (firewalld) ✓"
                   else
-                      log_warn "firewalld service is not running, skipping firewall configuration"
+                      log_warn "firewalld 服务未运行，跳过防火墙配置"
                   fi
               elif command -v ufw &> /dev/null; then
                   if systemctl is-active --quiet ufw 2>/dev/null || ufw status 2>/dev/null | grep -q "Status: active"; then
-                      ufw allow 80/tcp 2>/dev/null || log_warn "Failed to add port 80"
-                      ufw allow 3000/tcp 2>/dev/null || log_warn "Failed to add port 3000"
-                      ufw allow 9090/tcp 2>/dev/null || log_warn "Failed to add port 9090"
-                      log_info "Firewall configured (ufw) ✓"
+                      ufw allow 80/tcp 2>/dev/null || log_warn "添加端口失败 80"
+                      ufw allow 3000/tcp 2>/dev/null || log_warn "添加端口失败 3000"
+                      ufw allow 9090/tcp 2>/dev/null || log_warn "添加端口失败 9090"
+                      log_info "防火墙配置成功 (ufw) ✓"
                   else
-                      log_warn "ufw service is not active, skipping firewall configuration"
+                      log_warn "ufw 服务未激活，跳过防火墙配置"
                   fi
               else
-                  log_warn "No firewall detected, skipping"
+                  log_warn "未检测到防火墙，跳过"
               fi
           }
 
           # Create configuration
           create_config() {
-              log_info "Creating configuration files..."
+              log_info "正在创建配置文件..."
               
               mkdir -p "$SCRIPT_DIR/config"
               
               if [ ! -f "$SCRIPT_DIR/config/nta.yaml" ]; then
                   cp "$SCRIPT_DIR/config/nta.yaml.example" "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Created config/nta.yaml"
+                  log_info "已创建 config/nta.yaml"
               fi
               
               # Generate random JWT secret
@@ -445,159 +445,159 @@ jobs:
               sed -i "s|CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG|$JWT_SECRET|g" "$SCRIPT_DIR/config/nta.yaml"
               
               # Fix database and redis addresses for Docker container networking
-              log_info "Configuring container networking..."
+              log_info "正在配置容器网络..."
               
               # Fix PostgreSQL hostname - ensure using container name
               if grep -q "host=localhost" "$SCRIPT_DIR/config/nta.yaml"; then
                   sed -i 's/host=localhost/host=nta-postgres/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Fixed database address: localhost -> nta-postgres"
+                  log_info "修复数据库地址: localhost -> nta-postgres"
               fi
               if grep -q "host=postgres " "$SCRIPT_DIR/config/nta.yaml"; then
                   sed -i 's/host=postgres /host=nta-postgres /g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Fixed database address: postgres -> nta-postgres"
+                  log_info "修复数据库地址: postgres -> nta-postgres"
               fi
               
               # Fix Redis hostname - ensure using container name
               if grep -q "addr: localhost:6379" "$SCRIPT_DIR/config/nta.yaml"; then
                   sed -i 's/addr: localhost:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Fixed redis address: localhost -> nta-redis"
+                  log_info "修复 Redis 地址: localhost -> nta-redis"
               fi
               if grep -q "addr: redis:6379" "$SCRIPT_DIR/config/nta.yaml"; then
                   sed -i 's/addr: redis:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "Fixed redis address: redis -> nta-redis"
+                  log_info "修复 Redis 地址: redis -> nta-redis"
               fi
               
-              log_info "Configuration created ✓"
+              log_info "配置创建成功 ✓"
           }
           
           # Verify container networking
           verify_network() {
-              log_info "Verifying container network configuration..."
+              log_info "正在验证容器网络配置..."
               
               # Check if nta-postgres is reachable from nta-server
               if docker exec nta-server ping -c 2 nta-postgres > /dev/null 2>&1; then
-                  log_info "✓ nta-server can reach nta-postgres"
+                  log_info "✓ nta-server 可以访问 nta-postgres"
               else
-                  log_warn "✗ nta-server cannot reach nta-postgres (containers may still be starting)"
+                  log_warn "✗ nta-server 无法访问 nta-postgres (容器可能仍在启动中)"
               fi
               
               # Check if nta-redis is reachable from nta-server
               if docker exec nta-server ping -c 2 nta-redis > /dev/null 2>&1; then
-                  log_info "✓ nta-server can reach nta-redis"
+                  log_info "✓ nta-server 可以访问 nta-redis"
               else
-                  log_warn "✗ nta-server cannot reach nta-redis (containers may still be starting)"
+                  log_warn "✗ nta-server 无法访问 nta-redis (容器可能仍在启动中)"
               fi
           }
 
           # Deploy NTA
           deploy_nta() {
-              log_info "Deploying NTA system..."
+              log_info "正在部署 NTA 系统..."
               
               cd "$SCRIPT_DIR"
               
               # Verify docker-compose.yml exists
               if [ ! -f docker-compose.yml ]; then
-                  log_error "docker-compose.yml not found in $SCRIPT_DIR"
+                  log_error "未在以下目录找到 docker-compose.yml: $SCRIPT_DIR"
                   exit 1
               fi
               
               # Verify config exists
               if [ ! -f config/nta.yaml ]; then
-                  log_error "config/nta.yaml not found"
+                  log_error "未找到 config/nta.yaml"
                   exit 1
               fi
               
               # Verify config content
-              log_info "Verifying configuration..."
+              log_info "正在验证配置..."
               if grep -q "host=localhost" config/nta.yaml; then
-                  log_error "Configuration contains 'host=localhost' - this will fail in Docker"
-                  log_error "Expected 'host=nta-postgres'"
+                  log_error "配置包含 'host=localhost' - 这在 Docker 中会失败"
+                  log_error "期望 'host=nta-postgres'"
                   cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
                   exit 1
               fi
               if grep -q "addr: localhost:6379" config/nta.yaml; then
-                  log_error "Configuration contains 'addr: localhost:6379' - this will fail in Docker"
-                  log_error "Expected 'addr: nta-redis:6379'"
+                  log_error "配置包含 'addr: localhost:6379' - 这在 Docker 中会失败"
+                  log_error "期望 'addr: nta-redis:6379'"
                   cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
                   exit 1
               fi
-              log_info "Configuration verified ✓"
-              log_info "  Database: $(grep 'dsn:' config/nta.yaml | head -1)"
+              log_info "配置验证成功 ✓"
+              log_info "  数据库: $(grep 'dsn:' config/nta.yaml | head -1)"
               log_info "  Redis:    $(grep 'addr:' config/nta.yaml | head -1)"
               
               export VERSION="${VERSION:-dev}"
               export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
               export GIT_COMMIT="${GIT_COMMIT:-unknown}"
               
-              log_info "Starting Docker Compose..."
+              log_info "正在启动 Docker Compose..."
               docker-compose up -d
               
               if [ $? -ne 0 ]; then
-                  log_error "docker-compose up failed"
+                  log_error "docker-compose up 失败"
                   exit 1
               fi
               
-              log_info "Containers started, waiting for initialization..."
+              log_info "容器已启动，等待初始化..."
               sleep 5
               
               # Verify network exists
               if docker network ls | grep -q "nta.*network"; then
-                  log_info "Docker network created ✓"
+                  log_info "Docker 网络创建成功 ✓"
               else
-                  log_warn "NTA network not found, containers may have networking issues"
+                  log_warn "未找到 NTA 网络，容器可能存在网络问题"
               fi
               
-              log_info "NTA deployment initiated ✓"
+              log_info "NTA 部署已启动 ✓"
           }
 
           # Check deployment
           check_deployment() {
-              log_info "Checking deployment status..."
+              log_info "正在检查部署状态..."
               
-              log_info "Waiting for containers to start..."
+              log_info "等待容器启动..."
               sleep 10
               
               # Show all container status
-              log_info "Container status:"
+              log_info "容器状态:"
               docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
               echo ""
               
               # Check if nta-server container exists
               if ! docker ps -a | grep -q "nta-server"; then
-                  log_error "nta-server container not found"
-                  log_info "Available containers:"
+                  log_error "未找到 nta-server 容器"
+                  log_info "可用容器:"
                   docker ps -a
                   exit 1
               fi
               
               # Check if nta-server is restarting
               if docker ps -a | grep "nta-server" | grep -q "Restarting"; then
-                  log_error "nta-server container is restarting - configuration issue detected"
+                  log_error "nta-server 容器正在重启 - 检测到配置问题"
                   echo ""
-                  log_info "Recent logs from nta-server:"
+                  log_info "nta-server 最近的日志:"
                   docker logs nta-server --tail 100 2>&1 || true
                   echo ""
-                  log_error "Common issues:"
-                  log_error "  1. Database connection failed - check if postgres container is healthy"
-                  log_error "  2. Redis connection failed - check if redis container is healthy"
-                  log_error "  3. Configuration file issues - verify config/nta.yaml"
+                  log_error "常见问题:"
+                  log_error "  1. 数据库连接失败 - 检查 postgres 容器是否健康"
+                  log_error "  2. Redis 连接失败 - 检查 redis 容器是否健康"
+                  log_error "  3. 配置文件问题 - 验证 config/nta.yaml"
                   echo ""
-                  log_info "Troubleshooting steps:"
-                  log_info "  1. Check database: docker logs nta-postgres"
-                  log_info "  2. Check redis: docker logs nta-redis"
-                  log_info "  3. Check network: docker network inspect nta_nta-network"
-                  log_info "  4. Verify config: cat config/nta.yaml | grep -E '(dsn|addr)'"
+                  log_info "故障排查步骤:"
+                  log_info "  1. 检查数据库: docker logs nta-postgres"
+                  log_info "  2. 检查 Redis: docker logs nta-redis"
+                  log_info "  3. 检查网络: docker network inspect nta_nta-network"
+                  log_info "  4. 验证配置: cat config/nta.yaml | grep -E '(dsn|addr)'"
                   exit 1
               fi
               
               # Wait for nta-server to be Up
-              log_info "Waiting for nta-server to be healthy..."
+              log_info "等待 nta-server 健康检查..."
               local wait_attempts=30
               local wait_count=0
               
               while [ $wait_count -lt $wait_attempts ]; do
                   if docker ps | grep "nta-server" | grep -q "Up"; then
-                      log_info "nta-server is running"
+                      log_info "nta-server 正在运行"
                       break
                   fi
                   wait_count=$((wait_count + 1))
@@ -607,7 +607,7 @@ jobs:
               echo ""
               
               if [ $wait_count -ge $wait_attempts ]; then
-                  log_error "nta-server failed to start within 60 seconds"
+                  log_error "nta-server 在 60 秒内未能启动"
                   docker logs nta-server --tail 100 2>&1 || true
                   exit 1
               fi
@@ -617,35 +617,35 @@ jobs:
               verify_network
               
               # Wait for health check endpoint
-              log_info "Waiting for API health check..."
+              log_info "等待 API 健康检查..."
               local max_attempts=30
               local attempt=0
               
               while [ $attempt -lt $max_attempts ]; do
                   if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-                      log_info "NTA system is healthy ✓"
+                      log_info "NTA 系统健康 ✓"
                       echo ""
                       log_info "========================================="
-                      log_info "  NTA System Deployed Successfully!"
+                      log_info "  NTA 系统部署成功!"
                       log_info "========================================="
                       echo ""
-                      log_info "Access URLs:"
-                      log_info "  Web UI:      http://$(hostname -I | awk '{print $1}')/"
-                      log_info "  API Server:  http://$(hostname -I | awk '{print $1}'):8080"
-                      log_info "  Health API:  http://$(hostname -I | awk '{print $1}'):8080/health"
+                      log_info "访问地址:"
+                      log_info "  Web 界面:      http://$(hostname -I | awk '{print $1}')/"
+                      log_info "  API 服务器:  http://$(hostname -I | awk '{print $1}'):8080"
+                      log_info "  健康检查 API:  http://$(hostname -I | awk '{print $1}'):8080/health"
                       echo ""
-                      log_info "Monitoring:"
+                      log_info "监控:"
                       log_info "  Grafana:     http://$(hostname -I | awk '{print $1}'):3000 (admin/admin)"
                       log_info "  Prometheus:  http://$(hostname -I | awk '{print $1}'):9090"
                       echo ""
-                      log_info "Management Commands:"
-                      log_info "  View logs:       docker logs -f nta-server"
-                      log_info "  View all logs:   docker-compose logs -f"
-                      log_info "  Restart service: docker-compose restart nta-server"
-                      log_info "  Stop all:        docker-compose down"
-                      log_info "  Start all:       docker-compose up -d"
+                      log_info "管理命令:"
+                      log_info "  查看日志:       docker logs -f nta-server"
+                      log_info "  查看所有日志:   docker-compose logs -f"
+                      log_info "  重启服务: docker-compose restart nta-server"
+                      log_info "  停止所有:        docker-compose down"
+                      log_info "  启动所有:       docker-compose up -d"
                       echo ""
-                      log_info "Default credentials: admin / admin"
+                      log_info "默认凭据: admin / admin"
                       echo ""
                       return 0
                   fi
@@ -655,18 +655,18 @@ jobs:
               done
               
               echo ""
-              log_error "NTA API health check failed after 60 seconds"
+              log_error "NTA API 健康检查在 60 秒后失败"
               echo ""
-              log_info "Final container status:"
+              log_info "最终容器状态:"
               docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
               echo ""
-              log_info "nta-server logs:"
+              log_info "nta-server 日志:"
               docker logs nta-server --tail 100 2>&1 || true
               echo ""
-              log_warn "The system may still be starting. You can:"
-              log_warn "  1. Wait a few more minutes and check: curl http://localhost:8080/health"
-              log_warn "  2. Check logs: docker logs -f nta-server"
-              log_warn "  3. Restart: docker-compose restart nta-server"
+              log_warn "系统可能仍在启动中。您可以:"
+              log_warn "  1. 再等待几分钟并检查: curl http://localhost:8080/health"
+              log_warn "  2. 检查日志: docker logs -f nta-server"
+              log_warn "  3. 重启: docker-compose restart nta-server"
               exit 1
           }
 
@@ -674,7 +674,7 @@ jobs:
           main() {
               echo ""
               log_info "========================================="
-              log_info "  NTA Offline Installation"
+              log_info "  NTA 离线安装"
               log_info "========================================="
               echo ""
               
@@ -716,28 +716,28 @@ jobs:
 
           echo ""
           log_warn "========================================="
-          log_warn "  NTA Uninstallation"
+          log_warn "  NTA 卸载"
           log_warn "========================================="
           echo ""
-          log_warn "This will remove NTA system and all data!"
-          read -p "Continue? (yes/no): " CONFIRM
+          log_warn "这将删除 NTA 系统和所有数据！"
+          read -p "是否继续？ (yes/no): " CONFIRM
 
           if [ "$CONFIRM" != "yes" ]; then
-              log_error "Aborted"
+              log_error "已取消"
               exit 1
           fi
 
           cd "$SCRIPT_DIR"
 
-          log_warn "Stopping services..."
+          log_warn "正在停止服务..."
           docker-compose down -v
 
-          log_warn "Removing images..."
+          log_warn "正在删除镜像..."
           docker rmi nta-server:v1.0.0 nta-web:v1.0.0 postgres:15-alpine redis:7-alpine prom/prometheus:latest grafana/grafana:latest 2>/dev/null || true
 
           echo ""
-          log_warn "NTA uninstalled. Docker and Docker Compose are still installed."
-          log_warn "To remove Docker completely, run: sudo apt remove docker-ce docker-ce-cli (Ubuntu) or sudo yum remove docker-ce (CentOS)"
+          log_warn "NTA 已卸载。Docker 和 Docker Compose 仍然保留。"
+          log_warn "要完全删除 Docker，请运行: sudo apt remove docker-ce docker-ce-cli (Ubuntu) or sudo yum remove docker-ce (CentOS)"
           UNINSTALL_EOF
           
           chmod +x /tmp/nta-deploy/uninstall.sh
