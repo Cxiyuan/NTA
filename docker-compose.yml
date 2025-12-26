@@ -381,7 +381,7 @@ services:
       - "8081:8081"
     environment:
       - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
-      - FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager
+      - "FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager"
     volumes:
       - flink-checkpoints:/opt/flink/checkpoints
       - flink-savepoints:/opt/flink/savepoints
@@ -401,7 +401,7 @@ services:
     restart: unless-stopped
     environment:
       - JOB_MANAGER_RPC_ADDRESS=flink-jobmanager
-      - FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager
+      - "FLINK_PROPERTIES=jobmanager.rpc.address: flink-jobmanager"
       - TASK_MANAGER_NUMBER_OF_TASK_SLOTS=4
     volumes:
       - flink-checkpoints:/opt/flink/checkpoints
