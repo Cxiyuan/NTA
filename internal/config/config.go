@@ -66,9 +66,11 @@ type MLConfig struct {
 }
 
 type ThreatIntelConfig struct {
-	Sources      []ThreatSource `yaml:"sources"`
-	UpdateInterval int          `yaml:"update_interval"`
-	LocalFeedPath string        `yaml:"local_feed_path"`
+	Sources        []ThreatSource `yaml:"sources"`
+	UpdateInterval int            `yaml:"update_interval_hours"`
+	UpdateHour     int            `yaml:"update_hour"`
+	LocalFeedPath  string         `yaml:"local_feed_path"`
+	EnableLocalDB  bool           `yaml:"enable_local_db"`
 }
 
 type ThreatSource struct {
@@ -198,11 +200,20 @@ func DefaultConfig() *Config {
 				{
 					Name:    "threatfox",
 					URL:     "https://threatfox-api.abuse.ch/api/v1/",
+					APIKey:  "61bed05600698d560b673f827be792ae32cf51b5806a84e0",
+					Enabled: true,
+				},
+				{
+					Name:    "alienvault_otx",
+					URL:     "https://otx.alienvault.com/api/v1/",
+					APIKey:  "2ae1cf29a01ff74dd7cd3a71d97058a7568868698fb6f5ba5e0ae1802c44f7a4",
 					Enabled: true,
 				},
 			},
-			UpdateInterval: 3600,
-			LocalFeedPath:  "/opt/nta-probe/config/threat_feed.json",
+			UpdateInterval: 24,
+			UpdateHour:     2,
+			LocalFeedPath:  "/opt/nta-probe/data/threat_intel.db",
+			EnableLocalDB:  true,
 		},
 		License: LicenseConfig{
 			LicenseFile:   "/opt/nta-probe/config/license.key",

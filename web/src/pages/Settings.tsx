@@ -1,13 +1,17 @@
-import { Card, Form, Input, Button, Switch, message, Tabs, InputNumber, Select } from 'antd'
+import { Card, Form, Input, Button, Switch, message, Tabs, InputNumber, Select, Statistic, Row, Col, Typography } from 'antd'
 import { useState, useEffect } from 'react'
 import { notificationAPI } from '../services/api'
 import apiClient from '../utils/apiClient'
+
+const { Text } = Typography
 
 export default function Settings() {
   const [notifForm] = Form.useForm()
   const [detectionForm] = Form.useForm()
   const [backupForm] = Form.useForm()
+  const [threatIntelForm] = Form.useForm()
   const [loading, setLoading] = useState(false)
+  const [threatIntelStats, setThreatIntelStats] = useState<any>({})
 
   useEffect(() => {
     loadSettings()
@@ -15,13 +19,69 @@ export default function Settings() {
 
   const loadSettings = async () => {
     try {
-      const [notifRes, configRes] = await Promise.all([
+      // 硬编码模拟数据
+      const mockNotifData = {
+        email_enabled: false,
+        email_smtp: 'smtp.example.com:587',
+        email_username: '',
+        email_password: '',
+        email_recipients: '',
+        webhook_enabled: false,
+        webhook_url: '',
+        dingtalk_enabled: false,
+        dingtalk_webhook: '',
+      }
+      
+      const mockConfigData = {
+        detection: {
+          scan: { threshold: 20, time_window: 300, min_fail_rate: 0.6 },
+          auth: { fail_threshold: 5, pth_window: 3600 },
+          ml: { enabled: true, contamination: 0.01 },
+        },
+        backup: {
+          enabled: true,
+          backup_dir: '/opt/nta-probe/backups',
+          interval_hours: 24,
+          retention_days: 7,
+        },
+      }
+      
+      const mockThreatIntelData = {
+        update_interval_hours: 24,
+        update_hour: 2,
+        enable_local_db: true,
+        sources: [
+          { name: 'ThreatFox', enabled: true },
+          { name: 'AlienVault OTX', enabled: true },
+        ],
+        last_sync_time: new Date(Date.now() - Math.random() * 3600000).toISOString(),
+        total_iocs: Math.floor(Math.random() * 50000) + 10000,
+      }
+      
+      notifForm.setFieldsValue(mockNotifData)
+      detectionForm.setFieldsValue(mockConfigData.detection)
+      backupForm.setFieldsValue(mockConfigData.backup)
+      threatIntelForm.setFieldsValue({
+        update_interval_hours: mockThreatIntelData.update_interval_hours,
+        update_hour: mockThreatIntelData.update_hour,
+      })
+      setThreatIntelStats(mockThreatIntelData)
+      
+      /* 真实数据接口（待后续启用）
+      const [notifRes, configRes, threatIntelRes] = await Promise.all([
         apiClient.get('/api/v1/notifications/config'),
         apiClient.get('/api/v1/config'),
+        apiClient.get('/api/v1/config/threat-intel'),
       ])
       notifForm.setFieldsValue(notifRes.data)
       detectionForm.setFieldsValue(configRes.data.detection)
       backupForm.setFieldsValue(configRes.data.backup)
+      threatIntelForm.setFieldsValue({
+        update_interval_hours: threatIntelRes.data.update_interval_hours,
+        update_hour: threatIntelRes.data.update_hour,
+      })
+      setThreatIntelStats(threatIntelRes.data)
+      */
     } catch (error) {
       console.error('Failed to load settings')
     }
@@ -56,6 +116,19 @@ export default function Settings() {
     try {
       await apiClient.put('/api/v1/config/backup', values)
       message.success('保存成功')
+    } catch (error) {
+      message.error('保存失败')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleThreatIntelSubmit = async (values: any) => {
+    setLoading(true)
+    try {
+      await apiClient.put('/api/v1/config/threat-intel', values)
+      message.success('威胁情报配置已更新')
+      loadSettings()
     } catch (error) {
       message.error('保存失败')
     } finally {
@@ -163,6 +236,73 @@ export default function Settings() {
     </Form>
   )
 
+  const threatIntelTab = (
+    <div>
+      <Row gutter={16} style={{ marginBottom: 24 }}>
+        <Col span={8}>
+          <Card>
+            <Statistic title="威胁情报总数" value={threatIntelStats.total_iocs || 0} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Statistic title="上次同步时间" value={threatIntelStats.last_sync_time || '未同步'} valueStyle={{ fontSize: 16 }} />
+          </Card>
+        </Col>
+        <Col span={8}>
+          <Card>
+            <Text strong>数据源状态</Text>
+            <div style={{ marginTop: 8 }}>
+              {threatIntelStats.sources?.map((src: any) => (
+                <div key={src.name}>
+                  <Text>{src.name}: </Text>
+                  <Text type={src.enabled ? 'success' : 'secondary'}>
+                    {src.enabled ? '已启用' : '已禁用'}
+                  </Text>
+                </div>
+              ))}
+            </div>
+          </Card>
+        </Col>
+      </Row>
+
+      <Form form={threatIntelForm} layout="vertical" onFinish={handleThreatIntelSubmit}>
+        <Form.Item 
+          name="update_interval_hours" 
+          label="更新间隔" 
+          rules={[{ required: true, message: '请输入更新间隔' }]}
+          tooltip="威胁情报自动同步的间隔时间，单位：小时"
+        >
+          <InputNumber min={1} max={720} addonAfter="小时" style={{ width: 200 }} />
+        </Form.Item>
+
+        <Form.Item 
+          name="update_hour" 
+          label="更新时间点" 
+          rules={[{ required: true, message: '请选择更新时间点' }]}
+          tooltip="每天自动同步威胁情报的时间点（24小时制）"
+        >
+          <Select style={{ width: 200 }}>
+            {Array.from({ length: 24 }, (_, i) => (
+              <Select.Option key={i} value={i}>
+                {i.toString().padStart(2, '0')}:00
+              </Select.Option>
+            ))}
+          </Select>
+        </Form.Item>
+
+        <Form.Item>
+          <Button type="primary" htmlType="submit" loading={loading}>
+            保存设置
+          </Button>
+          <Text type="secondary" style={{ marginLeft: 16 }}>
+            配置将在下次定时任务时生效
+          </Text>
+        </Form.Item>
+      </Form>
+    </div>
+  )
+
   const items = [
     {
       key: 'notification',
@@ -173,6 +313,11 @@ export default function Settings() {
       key: 'detection',
       label: '检测规则',
       children: detectionTab,
+    },
+    {
+      key: 'threat-intel',
+      label: '威胁情报',
+      children: threatIntelTab,
     },
     {
       key: 'backup',

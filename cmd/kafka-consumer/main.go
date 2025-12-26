@@ -9,6 +9,8 @@ import (
 	"syscall"
 
 	"github.com/Cxiyuan/NTA/internal/kafka"
+	"github.com/Cxiyuan/NTA/internal/threatintel"
+	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
@@ -16,6 +18,7 @@ import (
 
 var (
 	kafkaBrokers = flag.String("kafka-brokers", getEnv("KAFKA_BROKERS", "localhost:9092"), "Kafka broker addresses")
+	redisAddr    = flag.String("redis-addr", getEnv("REDIS_ADDR", "localhost:6379"), "Redis address")
 	postgresHost = flag.String("pg-host", getEnv("POSTGRES_HOST", "localhost"), "PostgreSQL host")
 	postgresPort = flag.String("pg-port", getEnv("POSTGRES_PORT", "5432"), "PostgreSQL port")
 	postgresDB   = flag.String("pg-db", getEnv("POSTGRES_DB", "nta"), "PostgreSQL database")
@@ -48,6 +51,20 @@ func main() {
 
 	logger.Info("Connected to PostgreSQL")
 
+	rdb := redis.NewClient(&redis.Options{
+		Addr: *redisAddr,
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		logger.Fatalf("Failed to connect to Redis: %v", err)
+	}
+	logger.Info("Connected to Redis")
+
+	threatIntelService := threatintel.NewService(db, rdb, logger, []threatintel.Source{})
+
 	brokers := strings.Split(*kafkaBrokers, ",")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -62,7 +79,7 @@ func main() {
 	}
 
 	for _, topic := range topics {
-		consumer := kafka.NewConsumer(brokers, topic, "nta-consumer-group", db, logger)
+		consumer := kafka.NewConsumer(brokers, topic, "nta-consumer-group", db, logger, threatIntelService)
 		go func(t string, c *kafka.Consumer) {
 			logger.Infof("Starting consumer for topic: %s", t)
 			if err := c.Start(ctx); err != nil {

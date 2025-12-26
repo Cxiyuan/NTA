@@ -415,6 +415,9 @@ services:
     command: taskmanager
 
   kafka-consumer:
+    build:
+      context: .
+      dockerfile: cmd/kafka-consumer/Dockerfile
     image: nta-kafka-consumer:v1.0.0
     container_name: nta-kafka-consumer
     restart: unless-stopped
@@ -425,8 +428,7 @@ services:
       - POSTGRES_DB=nta
       - POSTGRES_USER=nta
       - POSTGRES_PASSWORD=nta_password
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
+      - REDIS_ADDR=redis:6379
       - LOG_LEVEL=info
     networks:
       - nta-network

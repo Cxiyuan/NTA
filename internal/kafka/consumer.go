@@ -3,9 +3,11 @@ package kafka
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"time"
 
 	"github.com/Cxiyuan/NTA/internal/detector"
+	"github.com/Cxiyuan/NTA/internal/threatintel"
 	"github.com/Cxiyuan/NTA/pkg/models"
 	"github.com/segmentio/kafka-go"
 	"github.com/sirupsen/logrus"
@@ -13,13 +15,14 @@ import (
 )
 
 type Consumer struct {
-	reader   *kafka.Reader
-	db       *gorm.DB
-	logger   *logrus.Logger
-	detector *detector.AdvancedDetector
+	reader      *kafka.Reader
+	db          *gorm.DB
+	logger      *logrus.Logger
+	detector    *detector.AdvancedDetector
+	threatIntel *threatintel.Service
 }
 
-func NewConsumer(brokers []string, topic string, groupID string, db *gorm.DB, logger *logrus.Logger) *Consumer {
+func NewConsumer(brokers []string, topic string, groupID string, db *gorm.DB, logger *logrus.Logger, threatIntel *threatintel.Service) *Consumer {
 	reader := kafka.NewReader(kafka.ReaderConfig{
 		Brokers:        brokers,
 		Topic:          topic,
@@ -31,10 +34,11 @@ func NewConsumer(brokers []string, topic string, groupID string, db *gorm.DB, lo
 	})
 
 	return &Consumer{
-		reader:   reader,
-		db:       db,
-		logger:   logger,
-		detector: detector.NewAdvancedDetector(logger),
+		reader:      reader,
+		db:          db,
+		logger:      logger,
+		detector:    detector.NewAdvancedDetector(logger),
+		threatIntel: threatIntel,
 	}
 }
 
@@ -90,7 +94,44 @@ func (c *Consumer) processConnLog(data []byte) error {
 		return err
 	}
 
-	// 检测C2通信
+	ctx := context.Background()
+
+	if c.threatIntel != nil {
+		if srcIntel, err := c.threatIntel.CheckIP(ctx, conn.SrcIP); err == nil && srcIntel != nil && srcIntel.Severity != "none" {
+			alert := &models.Alert{
+				Type:         "threat_intel_match",
+				Severity:     srcIntel.Severity,
+				SrcIP:        conn.SrcIP,
+				DstIP:        conn.DstIP,
+				Description:  fmt.Sprintf("威胁情报匹配 [%s]: %s - %s", srcIntel.ThreatLabel, conn.SrcIP, srcIntel.Description),
+				ThreatLabel:  srcIntel.ThreatLabel,
+				ThreatSource: srcIntel.Source,
+				Confidence:   0.95,
+				Timestamp:    time.Now(),
+				Status:       "new",
+			}
+			c.db.Create(alert)
+			c.logger.Warnf("Threat intel match: %s (%s)", conn.SrcIP, srcIntel.ThreatLabel)
+		}
+
+		if dstIntel, err := c.threatIntel.CheckIP(ctx, conn.DstIP); err == nil && dstIntel != nil && dstIntel.Severity != "none" {
+			alert := &models.Alert{
+				Type:         "threat_intel_match",
+				Severity:     dstIntel.Severity,
+				SrcIP:        conn.SrcIP,
+				DstIP:        conn.DstIP,
+				Description:  fmt.Sprintf("威胁情报匹配 [%s]: %s - %s", dstIntel.ThreatLabel, conn.DstIP, dstIntel.Description),
+				ThreatLabel:  dstIntel.ThreatLabel,
+				ThreatSource: dstIntel.Source,
+				Confidence:   0.95,
+				Timestamp:    time.Now(),
+				Status:       "new",
+			}
+			c.db.Create(alert)
+			c.logger.Warnf("Threat intel match: %s (%s)", conn.DstIP, dstIntel.ThreatLabel)
+		}
+	}
+
 	if isC2, score, c2Type := c.detector.DetectC2Communication(&conn); isC2 {
 		alert := &models.Alert{
 			Type:        "c2_communication",
@@ -100,12 +141,12 @@ func (c *Consumer) processConnLog(data []byte) error {
 			Description: "检测到C2通信: " + c2Type,
 			Confidence:  score,
 			Timestamp:   time.Now(),
+			Status:      "new",
 		}
 		c.db.Create(alert)
 		c.logger.Warnf("C2 detected: %s -> %s (score: %.2f)", conn.SrcIP, conn.DstIP, score)
 	}
 
-	// 检测数据渗出
 	baseline := int64(1024 * 1024)
 	if isExfil, score := c.detector.DetectDataExfiltration(&conn, baseline); isExfil {
 		alert := &models.Alert{
@@ -116,6 +157,7 @@ func (c *Consumer) processConnLog(data []byte) error {
 			Description: "检测到数据渗出行为",
 			Confidence:  score,
 			Timestamp:   time.Now(),
+			Status:      "new",
 		}
 		c.db.Create(alert)
 	}
@@ -129,8 +171,29 @@ func (c *Consumer) processDNSLog(data []byte) error {
 		return err
 	}
 
-	// 检测DGA域名
+	ctx := context.Background()
+
 	if query, ok := dnsQuery["query"].(string); ok {
+		if c.threatIntel != nil {
+			if domainIntel, err := c.threatIntel.CheckDomain(ctx, query); err == nil && domainIntel != nil && domainIntel.Severity != "none" {
+				alert := &models.Alert{
+					Type:         "threat_intel_match",
+					Severity:     domainIntel.Severity,
+					Description:  fmt.Sprintf("威胁情报匹配 [%s]: %s - %s", domainIntel.ThreatLabel, query, domainIntel.Description),
+					ThreatLabel:  domainIntel.ThreatLabel,
+					ThreatSource: domainIntel.Source,
+					Confidence:   0.95,
+					Timestamp:    time.Now(),
+					Status:       "new",
+				}
+				if srcIP, ok := dnsQuery["id.orig_h"].(string); ok {
+					alert.SrcIP = srcIP
+				}
+				c.db.Create(alert)
+				c.logger.Warnf("Threat intel match (domain): %s (%s)", query, domainIntel.ThreatLabel)
+			}
+		}
+
 		if isDGA, score := c.detector.DetectDGA(query); isDGA {
 			alert := &models.Alert{
 				Type:        "dga_domain",
@@ -138,6 +201,10 @@ func (c *Consumer) processDNSLog(data []byte) error {
 				Description: "检测到DGA生成域名: " + query,
 				Confidence:  score,
 				Timestamp:   time.Now(),
+				Status:      "new",
+			}
+			if srcIP, ok := dnsQuery["id.orig_h"].(string); ok {
+				alert.SrcIP = srcIP
 			}
 			c.db.Create(alert)
 		}

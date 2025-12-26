@@ -16,13 +16,15 @@ import (
 
 // Service provides threat intelligence lookup
 type Service struct {
-	db         *gorm.DB
-	redis      *redis.Client
-	logger     *logrus.Logger
-	sources    []Source
-	cache      map[string]*CacheEntry
-	cacheMu    sync.RWMutex
-	cacheTTL   time.Duration
+	db              *gorm.DB
+	redis           *redis.Client
+	logger          *logrus.Logger
+	sources         []Source
+	cache           map[string]*CacheEntry
+	cacheMu         sync.RWMutex
+	cacheTTL        time.Duration
+	otxClient       *OTXClient
+	threatFoxClient *ThreatFoxClient
 }
 
 type Source struct {
@@ -39,61 +41,48 @@ type CacheEntry struct {
 
 // NewService creates a new threat intelligence service
 func NewService(db *gorm.DB, rdb *redis.Client, logger *logrus.Logger, sources []Source) *Service {
+	var otxClient *OTXClient
+	var threatFoxClient *ThreatFoxClient
+	
+	for _, source := range sources {
+		if source.Name == "alienvault_otx" && source.Enabled && source.APIKey != "" {
+			otxClient = NewOTXClient(source.APIKey, logger)
+			logger.Info("AlienVault OTX client initialized")
+		}
+		if source.Name == "threatfox" && source.Enabled && source.APIKey != "" {
+			threatFoxClient = NewThreatFoxClient(source.APIKey, logger)
+			logger.Info("ThreatFox client initialized")
+		}
+	}
+	
 	return &Service{
-		db:       db,
-		redis:    rdb,
-		logger:   logger,
-		sources:  sources,
-		cache:    make(map[string]*CacheEntry),
-		cacheTTL: 1 * time.Hour,
+		db:              db,
+		redis:           rdb,
+		logger:          logger,
+		sources:         sources,
+		cache:           make(map[string]*CacheEntry),
+		cacheTTL:        1 * time.Hour,
+		otxClient:       otxClient,
+		threatFoxClient: threatFoxClient,
 	}
 }
 
 // CheckIP checks if an IP is malicious
 func (s *Service) CheckIP(ctx context.Context, ip string) (*models.ThreatIntel, error) {
-	// Check cache first
 	if cached := s.getFromCache("ip:" + ip); cached != nil {
 		return cached, nil
 	}
 
-	// Check database
 	var intel models.ThreatIntel
-	err := s.db.Where("type = ? AND value = ?", "ip", ip).First(&intel).Error
+	err := s.db.Where("type = ? AND value = ? AND (valid_until IS NULL OR valid_until > ?)", "ip", ip, time.Now()).
+		Order("severity DESC, last_seen DESC").
+		First(&intel).Error
 	if err == nil {
 		s.putToCache("ip:"+ip, &intel)
 		return &intel, nil
 	}
 
-	// Check external sources
-	for _, source := range s.sources {
-		if !source.Enabled {
-			continue
-		}
-
-		result, err := s.querySource(ctx, source, "ip", ip)
-		if err != nil {
-			s.logger.Warnf("Failed to query source %s: %v", source.Name, err)
-			continue
-		}
-
-		if result != nil {
-			// Save to database
-			s.db.Create(result)
-			s.putToCache("ip:"+ip, result)
-			return result, nil
-		}
-	}
-
-	// Not found - create benign entry
-	benign := &models.ThreatIntel{
-		Type:     "ip",
-		Value:    ip,
-		Severity: "none",
-		Source:   "local",
-	}
-	s.putToCache("ip:"+ip, benign)
-
-	return benign, nil
+	return nil, nil
 }
 
 // CheckDomain checks if a domain is malicious
@@ -105,38 +94,15 @@ func (s *Service) CheckDomain(ctx context.Context, domain string) (*models.Threa
 	}
 
 	var intel models.ThreatIntel
-	err := s.db.Where("type = ? AND value = ?", "domain", domain).First(&intel).Error
+	err := s.db.Where("type = ? AND value = ? AND (valid_until IS NULL OR valid_until > ?)", "domain", domain, time.Now()).
+		Order("severity DESC, last_seen DESC").
+		First(&intel).Error
 	if err == nil {
 		s.putToCache(cacheKey, &intel)
 		return &intel, nil
 	}
 
-	for _, source := range s.sources {
-		if !source.Enabled {
-			continue
-		}
-
-		result, err := s.querySource(ctx, source, "domain", domain)
-		if err != nil {
-			continue
-		}
-
-		if result != nil {
-			s.db.Create(result)
-			s.putToCache(cacheKey, result)
-			return result, nil
-		}
-	}
-
-	benign := &models.ThreatIntel{
-		Type:     "domain",
-		Value:    domain,
-		Severity: "none",
-		Source:   "local",
-	}
-	s.putToCache(cacheKey, benign)
-
-	return benign, nil
+	return nil, nil
 }
 
 // CheckHash checks if a file hash is malicious
@@ -148,38 +114,15 @@ func (s *Service) CheckHash(ctx context.Context, hash string) (*models.ThreatInt
 	}
 
 	var intel models.ThreatIntel
-	err := s.db.Where("type = ? AND value = ?", "hash", hash).First(&intel).Error
+	err := s.db.Where("type = ? AND value = ? AND (valid_until IS NULL OR valid_until > ?)", "hash", hash, time.Now()).
+		Order("severity DESC, last_seen DESC").
+		First(&intel).Error
 	if err == nil {
 		s.putToCache(cacheKey, &intel)
 		return &intel, nil
 	}
 
-	for _, source := range s.sources {
-		if !source.Enabled {
-			continue
-		}
-
-		result, err := s.querySource(ctx, source, "hash", hash)
-		if err != nil {
-			continue
-		}
-
-		if result != nil {
-			s.db.Create(result)
-			s.putToCache(cacheKey, result)
-			return result, nil
-		}
-	}
-
-	benign := &models.ThreatIntel{
-		Type:     "hash",
-		Value:    hash,
-		Severity: "none",
-		Source:   "local",
-	}
-	s.putToCache(cacheKey, benign)
-
-	return benign, nil
+	return nil, nil
 }
 
 // querySource queries external threat intelligence source

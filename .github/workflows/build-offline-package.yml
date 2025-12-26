@@ -38,6 +38,15 @@ jobs:
             --output type=docker,dest=/tmp/nta-server.tar \
             .
 
+      - name: Build Kafka consumer image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-kafka-consumer:v1.0.0 \
+            -f cmd/kafka-consumer/Dockerfile \
+            --output type=docker,dest=/tmp/nta-kafka-consumer.tar \
+            .
+
       - name: Build frontend image
         run: |
           docker buildx build \

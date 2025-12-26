@@ -33,7 +33,11 @@ threat_intel:
   sources:
     - name: threatfox
       url: https://threatfox-api.abuse.ch/api/v1/
-      api_key: ""
+      api_key: "61bed05600698d560b673f827be792ae32cf51b5806a84e0"
+      enabled: true
+    - name: alienvault_otx
+      url: https://otx.alienvault.com/api/v1/
+      api_key: "2ae1cf29a01ff74dd7cd3a71d97058a7568868698fb6f5ba5e0ae1802c44f7a4"
       enabled: true
   update_interval: 3600
   local_feed_path: /app/config/threat_feed.json

@@ -6,21 +6,23 @@ import (
 
 // Alert represents a security alert
 type Alert struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	Timestamp   time.Time `json:"timestamp"`
-	Severity    string    `json:"severity"` // critical, high, medium, low
-	Type        string    `json:"type"`
-	SrcIP       string    `json:"src_ip"`
-	DstIP       string    `json:"dst_ip"`
-	SrcPort     int       `json:"src_port"`
-	DstPort     int       `json:"dst_port"`
-	Protocol    string    `json:"protocol"`
-	Description string    `json:"description"`
-	Confidence  float64   `json:"confidence"`
-	Details     string    `json:"details" gorm:"type:text"`
-	Status      string    `json:"status"` // new, investigating, resolved, false_positive
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID           uint      `json:"id" gorm:"primaryKey"`
+	Timestamp    time.Time `json:"timestamp"`
+	Severity     string    `json:"severity"` // critical, high, medium, low
+	Type         string    `json:"type"`
+	SrcIP        string    `json:"src_ip"`
+	DstIP        string    `json:"dst_ip"`
+	SrcPort      int       `json:"src_port"`
+	DstPort      int       `json:"dst_port"`
+	Protocol     string    `json:"protocol"`
+	Description  string    `json:"description"`
+	ThreatLabel  string    `json:"threat_label"`  // 威胁标签：僵尸网络、远控木马等
+	ThreatSource string    `json:"threat_source"` // 威胁情报来源
+	Confidence   float64   `json:"confidence"`
+	Details      string    `json:"details" gorm:"type:text"`
+	Status       string    `json:"status"` // new, investigating, resolved, false_positive
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }
 
 // Asset represents a discovered network asset
@@ -40,15 +42,19 @@ type Asset struct {
 
 // ThreatIntel represents threat intelligence data
 type ThreatIntel struct {
-	ID         uint      `json:"id" gorm:"primaryKey"`
-	Type       string    `json:"type"` // ip, domain, hash
-	Value      string    `json:"value" gorm:"uniqueIndex"`
-	Severity   string    `json:"severity"`
-	Source     string    `json:"source"`
-	Tags       string    `json:"tags"` // JSON array
-	ValidUntil time.Time `json:"valid_until"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Type        string    `json:"type"` // ip, domain, hash, url
+	Value       string    `json:"value" gorm:"uniqueIndex"`
+	Severity    string    `json:"severity"`
+	Source      string    `json:"source"`
+	Description string    `json:"description"`
+	ThreatLabel string    `json:"threat_label"` // 威胁标签：僵尸网络、远控木马等
+	Tags        string    `json:"tags"` // JSON array
+	FirstSeen   time.Time `json:"first_seen"`
+	LastSeen    time.Time `json:"last_seen"`
+	ValidUntil  time.Time `json:"valid_until"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Probe represents a deployed probe instance

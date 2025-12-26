@@ -20,6 +20,15 @@ export default function Dashboard() {
   }, [])
 
   const loadData = async () => {
+    // 硬编码随机数据用于界面展示
+    setStats({
+      alerts: Math.floor(Math.random() * 1000) + 500,
+      assets: Math.floor(Math.random() * 200) + 50,
+      probes: Math.floor(Math.random() * 10) + 3,
+      threats: Math.floor(Math.random() * 50000) + 10000,
+    })
+    
+    /* 真实数据接口（待后续启用）
     try {
       const [alertsRes, assetsRes, probesRes] = await Promise.all([
         alertAPI.list({ page: 1, page_size: 1 }),
@@ -38,6 +47,7 @@ export default function Dashboard() {
       message.error(errorMsg)
       console.error('Failed to load dashboard data', error)
     }
+    */
   }
 
   const alertTrendOption = {
@@ -52,8 +62,16 @@ export default function Dashboard() {
       {
         name: '告警数',
         type: 'line',
-        data: [120, 200, 150, 80, 70, 110],
+        data: [
+          Math.floor(Math.random() * 200) + 50,
+          Math.floor(Math.random() * 200) + 50,
+          Math.floor(Math.random() * 200) + 50,
+          Math.floor(Math.random() * 200) + 50,
+          Math.floor(Math.random() * 200) + 50,
+          Math.floor(Math.random() * 200) + 50,
+        ],
         smooth: true,
+        areaStyle: {},
       },
     ],
   }
@@ -66,10 +84,10 @@ export default function Dashboard() {
         type: 'pie',
         radius: '50%',
         data: [
-          { value: 335, name: '严重' },
-          { value: 234, name: '高危' },
-          { value: 154, name: '中危' },
-          { value: 135, name: '低危' },
+          { value: Math.floor(Math.random() * 200) + 100, name: '严重', itemStyle: { color: '#cf1322' } },
+          { value: Math.floor(Math.random() * 300) + 150, name: '高危', itemStyle: { color: '#fa8c16' } },
+          { value: Math.floor(Math.random() * 200) + 100, name: '中危', itemStyle: { color: '#faad14' } },
+          { value: Math.floor(Math.random() * 150) + 50, name: '低危', itemStyle: { color: '#1890ff' } },
         ],
       },
     ],

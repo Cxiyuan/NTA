@@ -14,17 +14,18 @@ import (
 	"github.com/Cxiyuan/NTA/internal/asset"
 	"github.com/Cxiyuan/NTA/internal/audit"
 	"github.com/Cxiyuan/NTA/internal/config"
+	"github.com/Cxiyuan/NTA/internal/kafka"
 	"github.com/Cxiyuan/NTA/internal/license"
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
 	"github.com/Cxiyuan/NTA/internal/zeek"
 	"github.com/Cxiyuan/NTA/pkg/models"
-	"golang.org/x/crypto/bcrypt"
 	"github.com/Cxiyuan/NTA/pkg/notification"
 	"github.com/Cxiyuan/NTA/pkg/pcap"
 	"github.com/Cxiyuan/NTA/pkg/report"
 	"github.com/go-redis/redis/v8"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 )
@@ -249,6 +250,26 @@ func main() {
 	}
 	threatIntelService := threatintel.NewService(db, rdb, logger, threatIntelSources)
 	
+	var otxClient *threatintel.OTXClient
+	var threatFoxClient *threatintel.ThreatFoxClient
+	for _, src := range cfg.ThreatIntel.Sources {
+		if src.Name == "alienvault_otx" && src.Enabled && src.APIKey != "" {
+			otxClient = threatintel.NewOTXClient(src.APIKey, logger)
+		}
+		if src.Name == "threatfox" && src.Enabled && src.APIKey != "" {
+			threatFoxClient = threatintel.NewThreatFoxClient(src.APIKey, logger)
+		}
+	}
+	
+	feedSyncer := threatintel.NewFeedSyncer(
+		db,
+		logger,
+		otxClient,
+		threatFoxClient,
+		cfg.ThreatIntel.UpdateInterval,
+		cfg.ThreatIntel.UpdateHour,
+	)
+	
 	probeManager := probe.NewManager(db, rdb, logger)
 	auditService := audit.NewService(db, logger)
 	reportService := report.NewService(db, logger, "/opt/nta-probe/reports")
@@ -303,10 +324,11 @@ func main() {
 		ticker := time.NewTicker(1 * time.Hour)
 		defer ticker.Stop()
 		for range ticker.C {
-			threatIntelService.UpdateFeeds(ctx)
 			threatIntelService.CleanCache()
 		}
 	}()
+
+	go feedSyncer.Start(ctx)
 
 	go probeManager.StartHealthCheck(ctx, 30*time.Second)
 

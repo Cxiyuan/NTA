@@ -201,6 +201,8 @@ func (s *Server) setupRoutes() {
 		config.GET("", s.getSystemConfig)
 		config.PUT("/detection", s.updateDetectionConfig)
 		config.PUT("/backup", s.updateBackupConfig)
+		config.GET("/threat-intel", s.getThreatIntelConfig)
+		config.PUT("/threat-intel", s.updateThreatIntelConfig)
 	}
 
 	builtinProbe := api.Group("/builtin-probe")

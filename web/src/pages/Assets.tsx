@@ -14,8 +14,25 @@ export default function Assets() {
   const loadData = async () => {
     setLoading(true)
     try {
+      // 硬编码模拟数据
+      const mockData = Array.from({ length: 30 }, (_, i) => ({
+        id: i + 1,
+        ip: `192.168.${Math.floor(i / 255)}.${(i % 255) + 1}`,
+        mac: `00:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}:${Math.floor(Math.random() * 256).toString(16).padStart(2, '0')}`,
+        hostname: ['server-web', 'server-db', 'workstation', 'printer', 'nas', 'router'][Math.floor(Math.random() * 6)] + `-${i + 1}`,
+        vendor: ['Dell', 'HP', 'Cisco', 'Lenovo', 'Apple', 'Unknown'][Math.floor(Math.random() * 6)],
+        os: ['Windows 10', 'Windows Server 2019', 'Ubuntu 20.04', 'CentOS 7', 'macOS', 'Unknown'][Math.floor(Math.random() * 6)],
+        services: JSON.stringify(['HTTP:80', 'HTTPS:443', 'SSH:22', 'RDP:3389', 'SMB:445'].slice(0, Math.floor(Math.random() * 3) + 1)),
+        first_seen: new Date(Date.now() - Math.random() * 86400000 * 30).toISOString(),
+        last_seen: new Date(Date.now() - Math.random() * 3600000).toISOString(),
+      }))
+      
+      setData(mockData)
+      
+      /* 真实数据接口（待后续启用）
       const res = await assetAPI.list()
       setData(res)
+      */
     } catch (error) {
       message.error('加载失败')
     } finally {
