@@ -968,6 +968,7 @@ jobs:
           
           # Move application images
           mv /tmp/nta-server.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-kafka-consumer.tar /tmp/nta-deploy/images/
           mv /tmp/nta-web.tar /tmp/nta-deploy/images/
           mv /tmp/nta-zeek.tar /tmp/nta-deploy/images/
           
