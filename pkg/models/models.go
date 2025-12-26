@@ -53,16 +53,51 @@ type ThreatIntel struct {
 
 // Probe represents a deployed probe instance
 type Probe struct {
-	ID           uint      `json:"id" gorm:"primaryKey"`
-	ProbeID      string    `json:"probe_id" gorm:"uniqueIndex"`
-	Hostname     string    `json:"hostname"`
-	IPAddress    string    `json:"ip_address"`
-	Version      string    `json:"version"`
-	Status       string    `json:"status"` // online, offline, error
-	Capabilities string    `json:"capabilities" gorm:"type:text"` // JSON array
+	ID            uint      `json:"id" gorm:"primaryKey"`
+	ProbeID       string    `json:"probe_id" gorm:"uniqueIndex"`
+	Name          string    `json:"name"`
+	Type          string    `json:"type"` // builtin, external
+	Hostname      string    `json:"hostname"`
+	IPAddress     string    `json:"ip_address"`
+	Version       string    `json:"version"`
+	Status        string    `json:"status"` // online, offline, error
+	Capabilities  string    `json:"capabilities" gorm:"type:text"` // JSON array
+	Config        string    `json:"config" gorm:"type:text"` // JSON config
 	LastHeartbeat time.Time `json:"last_heartbeat"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
+	CreatedAt     time.Time `json:"created_at"`
+	UpdatedAt     time.Time `json:"updated_at"`
+}
+
+// ZeekProbe represents zeek internal probe configuration
+type ZeekProbe struct {
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	ProbeID         string    `json:"probe_id" gorm:"uniqueIndex"`
+	Name            string    `json:"name"`
+	Interface       string    `json:"interface"`
+	BPFFilter       string    `json:"bpf_filter"`
+	ScriptsEnabled  string    `json:"scripts_enabled" gorm:"type:text"` // JSON array
+	Status          string    `json:"status"` // running, stopped, error
+	PacketsCaptured int64     `json:"packets_captured"`
+	BytesCaptured   int64     `json:"bytes_captured"`
+	LastLogTime     time.Time `json:"last_log_time"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// ZeekLog represents parsed zeek logs
+type ZeekLog struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	ProbeID   string    `json:"probe_id" gorm:"index"`
+	LogType   string    `json:"log_type" gorm:"index"` // conn, dns, http, ssl, etc
+	Timestamp time.Time `json:"timestamp" gorm:"index"`
+	UID       string    `json:"uid" gorm:"index"`
+	SrcIP     string    `json:"src_ip" gorm:"index"`
+	DstIP     string    `json:"dst_ip" gorm:"index"`
+	SrcPort   int       `json:"src_port"`
+	DstPort   int       `json:"dst_port"`
+	Protocol  string    `json:"protocol"`
+	RawData   string    `json:"raw_data" gorm:"type:text"` // JSON raw log
+	CreatedAt time.Time `json:"created_at"`
 }
 
 // APTIndicator represents APT detection indicator

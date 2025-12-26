@@ -73,4 +73,19 @@ export const pcapAPI = {
   search: (params: any) => api.post('/pcap/search', params),
 }
 
+export const builtinProbeAPI = {
+  get: () => api.get('/builtin-probe'),
+  updateConfig: (data: any) => api.put('/builtin-probe', data),
+  getStatus: () => api.get('/builtin-probe/status'),
+  start: () => api.post('/builtin-probe/start'),
+  stop: () => api.post('/builtin-probe/stop'),
+  restart: () => api.post('/builtin-probe/restart'),
+  getScripts: () => api.get('/builtin-probe/scripts'),
+  enableScript: (scriptName: string) => api.post(`/builtin-probe/scripts/${scriptName}/enable`),
+  disableScript: (scriptName: string) => api.post(`/builtin-probe/scripts/${scriptName}/disable`),
+  getLogs: (params: any) => api.get('/builtin-probe/logs', { params }),
+  getLogStats: (params?: any) => api.get('/builtin-probe/logs/stats', { params }),
+  getInterfaces: () => api.get('/builtin-probe/interfaces'),
+}
+
 export default api

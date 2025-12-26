@@ -46,6 +46,14 @@ jobs:
             --output type=docker,dest=/tmp/nta-web.tar \
             ./web
 
+      - name: Build zeek image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            -t nta-zeek:v1.0.0 \
+            --output type=docker,dest=/tmp/nta-zeek.tar \
+            ./docker/zeek
+
       - name: Pull third-party images
         run: |
           docker pull --platform linux/amd64 postgres:15-alpine
@@ -857,6 +865,7 @@ jobs:
           # Move images
           mv /tmp/nta-server.tar /tmp/nta-deploy/images/
           mv /tmp/nta-web.tar /tmp/nta-deploy/images/
+          mv /tmp/nta-zeek.tar /tmp/nta-deploy/images/
           mv /tmp/postgres.tar /tmp/nta-deploy/images/
           mv /tmp/redis.tar /tmp/nta-deploy/images/
           mv /tmp/prometheus.tar /tmp/nta-deploy/images/

@@ -6,6 +6,7 @@ import Assets from './pages/Assets'
 import ThreatIntel from './pages/ThreatIntel'
 import Reports from './pages/Reports'
 import Probes from './pages/Probes'
+import BuiltinProbe from './pages/BuiltinProbe'
 import Settings from './pages/Settings'
 import AdvancedDetection from './pages/AdvancedDetection'
 import PcapAnalysis from './pages/PcapAnalysis'
@@ -35,6 +36,7 @@ function App() {
         <Route path="pcap-analysis" element={<PcapAnalysis />} />
         <Route path="reports" element={<Reports />} />
         <Route path="probes" element={<Probes />} />
+        <Route path="builtin-probe" element={<BuiltinProbe />} />
         <Route path="audit" element={<AuditLog />} />
         <Route path="users" element={<UserManagement />} />
         <Route path="roles" element={<RoleManagement />} />

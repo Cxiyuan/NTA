@@ -17,6 +17,7 @@ import (
 	"github.com/Cxiyuan/NTA/internal/license"
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
+	"github.com/Cxiyuan/NTA/internal/zeek"
 	"github.com/Cxiyuan/NTA/pkg/models"
 	"golang.org/x/crypto/bcrypt"
 	"github.com/Cxiyuan/NTA/pkg/notification"
@@ -87,6 +88,8 @@ func main() {
 		&models.Asset{},
 		&models.ThreatIntel{},
 		&models.Probe{},
+		&models.ZeekProbe{},
+		&models.ZeekLog{},
 		&models.APTIndicator{},
 		&models.AuditLog{},
 		&models.Tenant{},
@@ -186,6 +189,26 @@ func main() {
 		logger.Warn("IMPORTANT: Please change the default admin password after first login!")
 	}
 
+	// Initialize builtin zeek probe if not exists
+	var zeekProbeCount int64
+	db.Model(&models.ZeekProbe{}).Where("probe_id = ?", "builtin-zeek").Count(&zeekProbeCount)
+	if zeekProbeCount == 0 {
+		logger.Info("Initializing builtin zeek probe")
+		builtinProbe := models.ZeekProbe{
+			ProbeID:        "builtin-zeek",
+			Name:           "内置探针",
+			Interface:      "eth0",
+			BPFFilter:      "",
+			ScriptsEnabled: "[]",
+			Status:         "stopped",
+		}
+		if err := db.Create(&builtinProbe).Error; err != nil {
+			logger.Errorf("Failed to create builtin zeek probe: %v", err)
+		} else {
+			logger.Info("Created builtin zeek probe")
+		}
+	}
+
 	// Initialize Redis
 	rdb := redis.NewClient(&redis.Options{
 		Addr:     cfg.Redis.Addr,
@@ -231,6 +254,26 @@ func main() {
 	reportService := report.NewService(db, logger, "/opt/nta-probe/reports")
 	notifyService := notification.NewService(db, logger)
 	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
+	zeekManager := zeek.NewManager(db, logger)
+	zeekParser := zeek.NewLogParser(db, logger, "/opt/zeek/logs")
+
+	// Start zeek log parser
+	go func() {
+		if err := zeekParser.WatchAndParse(ctx, "builtin-zeek"); err != nil {
+			logger.Errorf("Zeek log parser error: %v", err)
+		}
+	}()
+
+	// Cleanup old zeek logs periodically
+	go func() {
+		ticker := time.NewTicker(24 * time.Hour)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := zeekManager.CleanOldLogs(ctx, 30*24*time.Hour); err != nil {
+				logger.Errorf("Failed to clean old zeek logs: %v", err)
+			}
+		}
+	}()
 
 	// Initialize analyzers
 	lateralDetector := analyzer.NewLateralMovementDetector(
@@ -286,6 +329,7 @@ func main() {
 		reportService,
 		notifyService,
 		pcapStorage,
+		zeekManager,
 		cfg.Security.JWTSecret,
 	)
 

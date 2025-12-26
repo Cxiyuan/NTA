@@ -55,6 +55,7 @@ services:
       - nta-logs:/app/logs
       - nta-reports:/app/reports
       - nta-pcap:/app/pcap
+      - zeek-logs:/opt/zeek/logs
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +67,30 @@ services:
       timeout: 3s
       retries: 3
       start_period: 10s
+
+  nta-zeek:
+    build:
+      context: ./docker/zeek
+      dockerfile: Dockerfile
+    image: nta-zeek:v1.0.0
+    container_name: nta-zeek
+    restart: unless-stopped
+    network_mode: host
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+      - SYS_NICE
+    environment:
+      - TZ=Asia/Shanghai
+      - ZEEK_INTERFACE=eth0
+      - ZEEK_BPF_FILTER=
+      - ZEEK_SCRIPTS_DIR=/opt/zeek/share/zeek/site/nta
+    volumes:
+      - zeek-logs:/opt/zeek/logs
+      - zeek-spool:/opt/zeek/spool
+      - ./zeek-scripts:/opt/zeek/share/zeek/site/nta:ro
+    depends_on:
+      - nta-server
 
   nta-web:
     image: nta-web:v1.0.0
@@ -124,3 +149,5 @@ volumes:
   nta-pcap:
   prometheus-data:
   grafana-data:
+  zeek-logs:
+  zeek-spool:

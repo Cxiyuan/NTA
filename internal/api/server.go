@@ -9,6 +9,7 @@ import (
 	"github.com/Cxiyuan/NTA/internal/license"
 	"github.com/Cxiyuan/NTA/internal/probe"
 	"github.com/Cxiyuan/NTA/internal/threatintel"
+	"github.com/Cxiyuan/NTA/internal/zeek"
 	"github.com/Cxiyuan/NTA/pkg/middleware"
 	"github.com/Cxiyuan/NTA/pkg/models"
 	"github.com/Cxiyuan/NTA/pkg/notification"
@@ -34,6 +35,7 @@ type Server struct {
 	reportService  *report.Service
 	notifyService  *notification.Service
 	pcapStorage    *pcap.Storage
+	zeekManager    *zeek.Manager
 }
 
 // NewServer creates a new API server
@@ -48,6 +50,7 @@ func NewServer(
 	reportService *report.Service,
 	notifyService *notification.Service,
 	pcapStorage *pcap.Storage,
+	zeekManager *zeek.Manager,
 	jwtSecret string,
 ) *Server {
 	router := gin.Default()
@@ -67,6 +70,7 @@ func NewServer(
 		reportService:  reportService,
 		notifyService:  notifyService,
 		pcapStorage:    pcapStorage,
+		zeekManager:    zeekManager,
 	}
 
 	s.setupRoutes()
@@ -193,6 +197,23 @@ func (s *Server) setupRoutes() {
 		config.GET("", s.getSystemConfig)
 		config.PUT("/detection", s.updateDetectionConfig)
 		config.PUT("/backup", s.updateBackupConfig)
+	}
+
+	builtinProbe := api.Group("/builtin-probe")
+	builtinProbe.Use(s.authMiddleware.RequireRole("admin"))
+	{
+		builtinProbe.GET("", s.getBuiltinProbe)
+		builtinProbe.PUT("", s.updateBuiltinProbe)
+		builtinProbe.GET("/status", s.getBuiltinProbeStatus)
+		builtinProbe.POST("/start", s.startBuiltinProbe)
+		builtinProbe.POST("/stop", s.stopBuiltinProbe)
+		builtinProbe.POST("/restart", s.restartBuiltinProbe)
+		builtinProbe.GET("/scripts", s.getBuiltinProbeScripts)
+		builtinProbe.POST("/scripts/:script/enable", s.enableBuiltinProbeScript)
+		builtinProbe.POST("/scripts/:script/disable", s.disableBuiltinProbeScript)
+		builtinProbe.GET("/logs", s.getBuiltinProbeLogs)
+		builtinProbe.GET("/logs/stats", s.getBuiltinProbeLogStats)
+		builtinProbe.GET("/interfaces", s.getBuiltinProbeInterfaces)
 	}
 
 	api.GET("/license", s.authMiddleware.RequireRole("admin"), s.getLicenseInfo)

@@ -36,7 +36,15 @@ export default function Layout() {
     { key: '/advanced-detection', icon: <SafetyOutlined />, label: '高级检测' },
     { key: '/pcap-analysis', icon: <FileSearchOutlined />, label: 'PCAP回溯' },
     { key: '/reports', icon: <FileTextOutlined />, label: '报表中心' },
-    { key: '/probes', icon: <ApiOutlined />, label: '探针管理' },
+    { 
+      key: 'probes',
+      icon: <ApiOutlined />,
+      label: '探针管理',
+      children: [
+        { key: '/builtin-probe', icon: <ApiOutlined />, label: '内置探针' },
+        { key: '/probes', icon: <ClusterOutlined />, label: '外部探针' },
+      ]
+    },
     { 
       key: 'system',
       icon: <SettingOutlined />,
