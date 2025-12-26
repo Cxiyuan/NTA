@@ -255,14 +255,7 @@ func main() {
 	notifyService := notification.NewService(db, logger)
 	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
 	zeekManager := zeek.NewManager(db, logger)
-	zeekParser := zeek.NewLogParser(db, logger, "/opt/zeek/logs")
-
-	// Start zeek log parser
-	go func() {
-		if err := zeekParser.WatchAndParse(ctx, "builtin-zeek"); err != nil {
-			logger.Errorf("Zeek log parser error: %v", err)
-		}
-	}()
+	zeekParser := zeek.NewLogParser("/opt/zeek/logs", logger)
 
 	// Cleanup old zeek logs periodically
 	go func() {
