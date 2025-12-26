@@ -55,8 +55,7 @@ func main() {
 		Addr: *redisAddr,
 	})
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := context.Background()
 
 	if err := rdb.Ping(ctx).Err(); err != nil {
 		logger.Fatalf("Failed to connect to Redis: %v", err)
@@ -67,7 +66,7 @@ func main() {
 
 	brokers := strings.Split(*kafkaBrokers, ",")
 
-	ctx, cancel := context.WithCancel(context.Background())
+	consumerCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
 	topics := []string{
@@ -82,7 +81,7 @@ func main() {
 		consumer := kafka.NewConsumer(brokers, topic, "nta-consumer-group", db, logger, threatIntelService)
 		go func(t string, c *kafka.Consumer) {
 			logger.Infof("Starting consumer for topic: %s", t)
-			if err := c.Start(ctx); err != nil {
+			if err := c.Start(consumerCtx); err != nil {
 				logger.Errorf("Consumer error for topic %s: %v", t, err)
 			}
 		}(topic, consumer)
