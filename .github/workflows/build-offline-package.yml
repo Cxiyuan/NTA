@@ -114,8 +114,8 @@ jobs:
           docker pull --platform linux/amd64 redis:7-alpine
           docker pull --platform linux/amd64 prom/prometheus:latest
           docker pull --platform linux/amd64 grafana/grafana:latest
-          docker pull --platform linux/amd64 bitnami/zookeeper:3.9
-          docker pull --platform linux/amd64 bitnami/kafka:3.6
+          docker pull --platform linux/amd64 zookeeper:3.9
+          docker pull --platform linux/amd64 confluentinc/cp-kafka:7.5.0
           docker pull --platform linux/amd64 flink:1.18-scala_2.12-java11
           docker pull --platform linux/amd64 consul:1.17
           docker pull --platform linux/amd64 jaegertracing/all-in-one:1.51
@@ -126,8 +126,8 @@ jobs:
           docker save redis:7-alpine -o /tmp/redis.tar
           docker save prom/prometheus:latest -o /tmp/prometheus.tar
           docker save grafana/grafana:latest -o /tmp/grafana.tar
-          docker save bitnami/zookeeper:3.9 -o /tmp/zookeeper.tar
-          docker save bitnami/kafka:3.6 -o /tmp/kafka.tar
+          docker save zookeeper:3.9 -o /tmp/zookeeper.tar
+          docker save confluentinc/cp-kafka:7.5.0 -o /tmp/kafka.tar
           docker save flink:1.18-scala_2.12-java11 -o /tmp/flink.tar
           docker save consul:1.17 -o /tmp/consul.tar
           docker save jaegertracing/all-in-one:1.51 -o /tmp/jaeger.tar
