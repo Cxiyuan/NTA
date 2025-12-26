@@ -223,50 +223,6 @@ services:
       postgres:
         condition: service_healthy
 
-  report-service:
-    image: nta-report-service:v2.0.0
-    container_name: nta-report-service
-    restart: unless-stopped
-    ports:
-      - "8085:8085"
-    environment:
-      - LOG_LEVEL=info
-    networks:
-      - nta-network
-
-  notification-service:
-    image: nta-notification-service:v2.0.0
-    container_name: nta-notification-service
-    restart: unless-stopped
-    ports:
-      - "8086:8086"
-    environment:
-      - LOG_LEVEL=info
-    networks:
-      - nta-network
-
-  probe-service:
-    image: nta-probe-service:v2.0.0
-    container_name: nta-probe-service
-    restart: unless-stopped
-    ports:
-      - "8087:8087"
-    environment:
-      - LOG_LEVEL=info
-    networks:
-      - nta-network
-
-  intel-service:
-    image: nta-intel-service:v2.0.0
-    container_name: nta-intel-service
-    restart: unless-stopped
-    ports:
-      - "8088:8088"
-    environment:
-      - LOG_LEVEL=info
-    networks:
-      - nta-network
-
   nta-web:
     image: nta-web:v2.0.0
     container_name: nta-web
