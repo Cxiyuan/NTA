@@ -70,9 +70,6 @@ services:
       start_period: 10s
 
   nta-zeek:
-    build:
-      context: ./docker/zeek
-      dockerfile: Dockerfile
     image: nta-zeek:v1.0.0
     container_name: nta-zeek
     restart: unless-stopped
@@ -96,9 +93,6 @@ services:
         condition: service_healthy
 
   traefik:
-    build:
-      context: .
-      dockerfile: docker/traefik/Dockerfile
     image: nta-traefik:v2.0.0
     container_name: nta-traefik
     restart: unless-stopped
@@ -110,6 +104,8 @@ services:
       - "--providers.file.directory=/etc/traefik/dynamic"
       - "--providers.file.watch=true"
       - "--entrypoints.web.address=:80"
+    volumes:
+      - ./deploy/traefik-config.yml:/etc/traefik/dynamic/traefik-config.yml:ro
     networks:
       - nta-network
     depends_on:
@@ -117,6 +113,10 @@ services:
       - asset-service
       - detection-service
       - alert-service
+      - report-service
+      - notification-service
+      - probe-service
+      - intel-service
 
   consul:
     image: hashicorp/consul:1.17
@@ -143,9 +143,6 @@ services:
       - nta-network
 
   auth-service:
-    build:
-      context: .
-      dockerfile: services/auth-service/Dockerfile
     image: nta-auth-service:v2.0.0
     container_name: nta-auth-service
     restart: unless-stopped
@@ -166,9 +163,6 @@ services:
         condition: service_healthy
 
   asset-service:
-    build:
-      context: .
-      dockerfile: services/asset-service/Dockerfile
     image: nta-asset-service:v2.0.0
     container_name: nta-asset-service
     restart: unless-stopped
@@ -188,9 +182,6 @@ services:
         condition: service_healthy
 
   detection-service:
-    build:
-      context: .
-      dockerfile: services/detection-service/Dockerfile
     image: nta-detection-service:v2.0.0
     container_name: nta-detection-service
     restart: unless-stopped
@@ -202,9 +193,6 @@ services:
       - nta-network
 
   alert-service:
-    build:
-      context: .
-      dockerfile: services/alert-service/Dockerfile
     image: nta-alert-service:v2.0.0
     container_name: nta-alert-service
     restart: unless-stopped
@@ -216,6 +204,62 @@ services:
       - DB_USER=nta
       - DB_PASS=nta_password
       - DB_NAME=alert_db
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  report-service:
+    image: nta-report-service:v2.0.0
+    container_name: nta-report-service
+    restart: unless-stopped
+    ports:
+      - "8085:8085"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  notification-service:
+    image: nta-notification-service:v2.0.0
+    container_name: nta-notification-service
+    restart: unless-stopped
+    ports:
+      - "8086:8086"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  probe-service:
+    image: nta-probe-service:v2.0.0
+    container_name: nta-probe-service
+    restart: unless-stopped
+    ports:
+      - "8087:8087"
+    environment:
+      - LOG_LEVEL=info
+    networks:
+      - nta-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  intel-service:
+    image: nta-intel-service:v2.0.0
+    container_name: nta-intel-service
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    environment:
       - LOG_LEVEL=info
     networks:
       - nta-network

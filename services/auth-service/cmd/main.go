@@ -24,7 +24,7 @@ var (
 	dbPort    = flag.Int("db-port", 5432, "Database port")
 	dbUser    = flag.String("db-user", "nta", "Database user")
 	dbPass    = flag.String("db-pass", "nta_password", "Database password")
-	dbName    = flag.String("db-name", "auth_db", "Database name")
+	dbName    = flag.String("db-name", "nta", "Database name")
 	jwtSecret = flag.String("jwt-secret", "nta-secret-key", "JWT secret")
 	logLevel  = flag.String("log-level", "info", "Log level")
 )
@@ -37,13 +37,16 @@ func main() {
 	logger.SetLevel(level)
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable search_path=auth_schema",
 		*dbHost, *dbPort, *dbUser, *dbPass, *dbName)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}
+
+	// Create schema if not exists
+	db.Exec("CREATE SCHEMA IF NOT EXISTS auth_schema")
 
 	if err := db.AutoMigrate(&models.User{}, &models.Role{}, &models.UserRole{}, &models.Tenant{}); err != nil {
 		logger.Fatalf("Failed to migrate database: %v", err)

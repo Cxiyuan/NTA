@@ -24,7 +24,7 @@ var (
 	dbPort   = flag.Int("db-port", 5432, "Database port")
 	dbUser   = flag.String("db-user", "nta", "Database user")
 	dbPass   = flag.String("db-pass", "nta_password", "Database password")
-	dbName   = flag.String("db-name", "asset_db", "Database name")
+	dbName   = flag.String("db-name", "nta", "Database name")
 	logLevel = flag.String("log-level", "info", "Log level")
 )
 
@@ -36,10 +36,13 @@ func main() {
 	logger.SetLevel(level)
 	logger.SetFormatter(&logrus.JSONFormatter{})
 
-	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable",
+	dsn := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable search_path=asset_schema",
 		*dbHost, *dbPort, *dbUser, *dbPass, *dbName)
 
 	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+
+	// Create schema if not exists
+	db.Exec("CREATE SCHEMA IF NOT EXISTS asset_schema")
 	if err != nil {
 		logger.Fatalf("Failed to connect to database: %v", err)
 	}

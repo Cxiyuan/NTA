@@ -45,7 +45,7 @@ http:
         - web
     
     intel-service:
-      rule: "PathPrefix(`/api/v1/threat-intel`)"
+      rule: "PathPrefix(`/api/v1/intel`)"
       service: intel-service
       entryPoints:
         - web
@@ -60,42 +60,42 @@ http:
     auth-service:
       loadBalancer:
         servers:
-          - url: "http://auth-service:8081"
+          - url: "http://nta-auth-service:8081"
     
     asset-service:
       loadBalancer:
         servers:
-          - url: "http://asset-service:8082"
+          - url: "http://nta-asset-service:8082"
     
     detection-service:
       loadBalancer:
         servers:
-          - url: "http://detection-service:8083"
+          - url: "http://nta-detection-service:8083"
     
     alert-service:
       loadBalancer:
         servers:
-          - url: "http://alert-service:8084"
+          - url: "http://nta-alert-service:8084"
     
     report-service:
       loadBalancer:
         servers:
-          - url: "http://report-service:8085"
+          - url: "http://nta-report-service:8085"
     
     notification-service:
       loadBalancer:
         servers:
-          - url: "http://notification-service:8086"
+          - url: "http://nta-notification-service:8086"
     
     probe-service:
       loadBalancer:
         servers:
-          - url: "http://probe-service:8087"
+          - url: "http://nta-probe-service:8087"
     
     intel-service:
       loadBalancer:
         servers:
-          - url: "http://intel-service:8088"
+          - url: "http://nta-intel-service:8088"
     
     stream-service:
       loadBalancer:
