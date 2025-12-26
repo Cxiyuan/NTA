@@ -22,7 +22,6 @@ import {
   DatabaseOutlined,
   ReloadOutlined,
 } from '@ant-design/icons';
-import { Line } from '@ant-design/plots';
 import apiClient from '../utils/apiClient';
 
 interface KafkaTopic {
