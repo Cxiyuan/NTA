@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y \
     libkrb5-dev \
     bsdmainutils \
     ca-certificates \
+    swig \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /tmp
