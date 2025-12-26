@@ -4,8 +4,8 @@ WORKDIR /build
 
 RUN apk add --no-cache git make gcc musl-dev
 
-COPY go.mod go.sum ./
-RUN go mod download
+COPY go.mod ./
+RUN go mod download && go mod tidy
 
 COPY . .
 
