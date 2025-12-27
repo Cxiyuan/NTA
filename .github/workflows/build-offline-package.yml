@@ -64,6 +64,7 @@ jobs:
             python3 python3-pip \
             flex bison swig \
             libmaxminddb-dev libkrb5-dev \
+            libfl-dev \
             default-jdk
 
       - name: Build backend binary
