@@ -322,7 +322,7 @@ Description=NTA PostgreSQL Database
 After=network.target
 
 [Service]
-Type=notify
+Type=simple
 User=$SERVICE_USER
 Group=$SERVICE_USER
 Environment="PGDATA=$DATA_DIR/postgres"
