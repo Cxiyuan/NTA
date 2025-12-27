@@ -154,14 +154,11 @@ jobs:
           echo "📥 Downloading Kafka ${{ env.KAFKA_VERSION }}..."
           
           cd /tmp
-          # Try multiple mirrors with timeout and retry
+          
+          # Use GitHub as primary mirror (most reliable for GitHub Actions)
           for mirror in \
-            "https://mirrors.tuna.tsinghua.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://mirrors.ustc.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://mirror.nju.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://dlcdn.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://downloads.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+            "https://github.com/apache/kafka/releases/download/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://repo1.maven.org/maven2/org/apache/kafka/kafka_2.13/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
           do
             echo "Trying mirror: $mirror"
             if wget --timeout=30 --tries=2 "$mirror" 2>&1; then
@@ -174,9 +171,25 @@ jobs:
             fi
           done
           
+          # If still not found, use archive.apache.org as last resort
+          if [ ! -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
+            echo "Trying archive.apache.org..."
+            wget --retry-connrefused --waitretry=5 --read-timeout=20 --timeout=15 --tries=5 \
+              https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz || true
+          fi
+          
           # Verify download
           if [ ! -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
             echo "❌ All mirrors failed!"
+            echo "Attempting to build from Maven Central binary distribution..."
+            # As fallback, try to download from Maven central with full retry
+            wget --retry-connrefused --waitretry=10 --read-timeout=30 --timeout=20 --tries=10 \
+              "https://repo1.maven.org/maven2/org/apache/kafka/kafka_2.13/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+          fi
+          
+          # Final verification
+          if [ ! -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
+            echo "❌ Fatal: Cannot download Kafka from any source!"
             exit 1
           fi
           
