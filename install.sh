@@ -135,6 +135,10 @@ create_directories() {
     mkdir -p $DATA_DIR/{postgres,redis,kafka,zeek-logs,pcap,backups}
     mkdir -p $LOG_DIR/{nta,postgres,redis,kafka,zeek}
     
+    # 确保日志目录权限正确
+    chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR
+    chown -R $SERVICE_USER:$SERVICE_USER $LOG_DIR
+    
     log_success "目录创建完成"
 }
 
@@ -318,14 +322,18 @@ Description=NTA PostgreSQL Database
 After=network.target
 
 [Service]
-Type=forking
+Type=notify
 User=$SERVICE_USER
 Group=$SERVICE_USER
-ExecStart=/opt/postgres/bin/pg_ctl start -D $DATA_DIR/postgres -l $LOG_DIR/postgres/postgres.log
-ExecStop=/opt/postgres/bin/pg_ctl stop -D $DATA_DIR/postgres
-ExecReload=/opt/postgres/bin/pg_ctl reload -D $DATA_DIR/postgres
+Environment="PGDATA=$DATA_DIR/postgres"
+ExecStart=/opt/postgres/bin/postgres -D $DATA_DIR/postgres
+ExecReload=/bin/kill -HUP \$MAINPID
+KillMode=mixed
+KillSignal=SIGINT
+TimeoutSec=infinity
+StandardOutput=append:$LOG_DIR/postgres/postgres.log
+StandardError=append:$LOG_DIR/postgres/postgres.log
 Restart=on-failure
-TimeoutSec=300
 
 [Install]
 WantedBy=multi-user.target
@@ -461,7 +469,27 @@ init_database() {
     
     # 启动PostgreSQL
     systemctl start nta-postgres
-    sleep 5
+    
+    # 等待PostgreSQL就绪，最多等待30秒
+    local max_wait=30
+    local waited=0
+    while [ $waited -lt $max_wait ]; do
+        if su - $SERVICE_USER -c "/opt/postgres/bin/pg_isready -q" 2>/dev/null; then
+            log_success "PostgreSQL 已就绪"
+            break
+        fi
+        sleep 1
+        waited=$((waited + 1))
+        if [ $((waited % 5)) -eq 0 ]; then
+            log_info "等待 PostgreSQL 启动... (${waited}s/${max_wait}s)"
+        fi
+    done
+    
+    if [ $waited -ge $max_wait ]; then
+        log_error "PostgreSQL 启动超时"
+        systemctl status nta-postgres
+        exit 1
+    fi
     
     # 创建数据库和用户
     su - $SERVICE_USER -c "/opt/postgres/bin/createuser -s nta 2>/dev/null" || true
