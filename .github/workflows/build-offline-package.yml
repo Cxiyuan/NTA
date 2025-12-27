@@ -153,7 +153,27 @@ jobs:
           echo "📥 Downloading Kafka ${{ env.KAFKA_VERSION }}..."
           
           cd /tmp
-          wget https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz
+          # Try multiple mirrors with timeout and retry
+          for mirror in \
+            "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://dlcdn.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://downloads.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+          do
+            echo "Trying mirror: $mirror"
+            if wget --timeout=60 --tries=3 "$mirror"; then
+              echo "✅ Downloaded from $mirror"
+              break
+            else
+              echo "❌ Failed to download from $mirror, trying next..."
+            fi
+          done
+          
+          # Verify download
+          if [ ! -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
+            echo "❌ All mirrors failed, trying curl as fallback..."
+            curl -L -o kafka_2.13-${{ env.KAFKA_VERSION }}.tgz \
+              "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+          fi
           
           # Repackage for our directory structure
           mkdir -p /tmp/kafka-install/opt
