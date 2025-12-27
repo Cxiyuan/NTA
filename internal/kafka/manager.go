@@ -2,7 +2,6 @@ package kafka
 
 import (
 	"context"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
