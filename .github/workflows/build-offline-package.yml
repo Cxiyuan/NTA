@@ -156,14 +156,19 @@ jobs:
           cd /tmp
           # Try multiple mirrors with timeout and retry
           for mirror in \
-            "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://mirrors.tuna.tsinghua.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://mirrors.ustc.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://mirror.nju.edu.cn/apache/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
             "https://dlcdn.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
-            "https://downloads.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+            "https://downloads.apache.org/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" \
+            "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
           do
             echo "Trying mirror: $mirror"
-            if wget --timeout=60 --tries=3 "$mirror"; then
-              echo "✅ Downloaded from $mirror"
-              break
+            if wget --timeout=30 --tries=2 "$mirror" 2>&1; then
+              if [ -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
+                echo "✅ Downloaded from $mirror"
+                break
+              fi
             else
               echo "❌ Failed to download from $mirror, trying next..."
             fi
@@ -171,9 +176,8 @@ jobs:
           
           # Verify download
           if [ ! -f "kafka_2.13-${{ env.KAFKA_VERSION }}.tgz" ]; then
-            echo "❌ All mirrors failed, trying curl as fallback..."
-            curl -L -o kafka_2.13-${{ env.KAFKA_VERSION }}.tgz \
-              "https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz"
+            echo "❌ All mirrors failed!"
+            exit 1
           fi
           
           # Repackage for our directory structure
