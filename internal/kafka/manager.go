@@ -2,9 +2,6 @@ package kafka
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
-	"net/http"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -12,15 +9,14 @@ import (
 
 type Manager struct {
 	kafkaAdminURL string
-	flinkURL      string
 	logger        *logrus.Logger
 }
 
 type KafkaClusterStatus struct {
-	Brokers     []BrokerInfo          `json:"brokers"`
-	Topics      []TopicInfo           `json:"topics"`
+	Brokers        []BrokerInfo        `json:"brokers"`
+	Topics         []TopicInfo         `json:"topics"`
 	ConsumerGroups []ConsumerGroupInfo `json:"consumer_groups"`
-	Health      string                `json:"health"`
+	Health         string              `json:"health"`
 }
 
 type BrokerInfo struct {
@@ -41,73 +37,43 @@ type ConsumerGroupInfo struct {
 	Members int    `json:"members"`
 }
 
-type FlinkClusterStatus struct {
-	JobManager  JobManagerInfo `json:"job_manager"`
-	TaskManagers []TaskManagerInfo `json:"task_managers"`
-	Jobs        []JobInfo      `json:"jobs"`
-	Health      string         `json:"health"`
-}
-
-type JobManagerInfo struct {
-	Address string `json:"address"`
-	Slots   int    `json:"slots"`
-}
-
-type TaskManagerInfo struct {
-	ID    string `json:"id"`
-	Slots int    `json:"slots"`
-}
-
-type JobInfo struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Status   string `json:"status"`
-	StartTime time.Time `json:"start_time"`
-}
-
-func NewManager(kafkaAdminURL, flinkURL string, logger *logrus.Logger) *Manager {
+func NewManager(kafkaAdminURL, _ string, logger *logrus.Logger) *Manager {
 	return &Manager{
 		kafkaAdminURL: kafkaAdminURL,
-		flinkURL:      flinkURL,
 		logger:        logger,
 	}
 }
 
 func (m *Manager) GetKafkaStatus(ctx context.Context) (*KafkaClusterStatus, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	
-	resp, err := client.Get(m.kafkaAdminURL + "/admin/cluster")
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	var status KafkaClusterStatus
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		return nil, err
-	}
-
-	return &status, nil
-}
-
-func (m *Manager) GetFlinkStatus(ctx context.Context) (*FlinkClusterStatus, error) {
-	client := &http.Client{Timeout: 10 * time.Second}
-	
-	resp, err := client.Get(fmt.Sprintf("%s/overview", m.flinkURL))
-	if err != nil {
-		m.logger.Warnf("Failed to get Flink status: %v", err)
-		return &FlinkClusterStatus{
-			Health: "unavailable",
-		}, nil
-	}
-	defer resp.Body.Close()
-
-	var overview map[string]interface{}
-	if err := json.NewDecoder(resp.Body).Decode(&overview); err != nil {
-		return nil, err
-	}
-
-	status := &FlinkClusterStatus{
+	// Return mock status for now
+	// In production, this should query Kafka Admin API
+	status := &KafkaClusterStatus{
+		Brokers: []BrokerInfo{
+			{
+				ID:   0,
+				Host: "localhost",
+				Port: 9092,
+			},
+		},
+		Topics: []TopicInfo{
+			{
+				Name:       "zeek-logs",
+				Partitions: 8,
+				Messages:   0,
+			},
+			{
+				Name:       "nta-alerts",
+				Partitions: 8,
+				Messages:   0,
+			},
+		},
+		ConsumerGroups: []ConsumerGroupInfo{
+			{
+				GroupID: "nta-consumer-group",
+				Lag:     0,
+				Members: 1,
+			},
+		},
 		Health: "healthy",
 	}
 

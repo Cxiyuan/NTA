@@ -1,6 +1,7 @@
 #!/bin/bash
-# NTA 离线安装脚本 - 支持 Kafka/Flink 流处理架构
+# NTA 离线安装脚本 - 预编译包部署
 # 版本: v2.0.0
+# 支持系统: Ubuntu 24.04 LTS
 
 set -e
 
@@ -11,21 +12,30 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 NC='\033[0m'
 
+# 安装路径
+INSTALL_DIR="/opt/nta"
+DATA_DIR="/var/lib/nta"
+LOG_DIR="/var/log/nta"
+SERVICE_USER="nta"
+
+# 当前脚本目录
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 # 日志函数
 log_info() {
-    echo -e "${BLUE}[INFO]${NC} $1"
+    echo -e "${BLUE}[信息]${NC} $1"
 }
 
 log_success() {
-    echo -e "${GREEN}[SUCCESS]${NC} $1"
+    echo -e "${GREEN}[成功]${NC} $1"
 }
 
 log_warn() {
-    echo -e "${YELLOW}[WARN]${NC} $1"
+    echo -e "${YELLOW}[警告]${NC} $1"
 }
 
 log_error() {
-    echo -e "${RED}[ERROR]${NC} $1"
+    echo -e "${RED}[错误]${NC} $1"
 }
 
 # 检查root权限
@@ -36,324 +46,529 @@ check_root() {
     fi
 }
 
-# 检查系统
-check_system() {
-    log_info "检查系统环境..."
+# 检测操作系统
+detect_os() {
+    if [ ! -f /etc/os-release ]; then
+        log_error "无法检测操作系统版本"
+        exit 1
+    fi
     
-    # 检查CPU核心数
+    . /etc/os-release
+    
+    if [ "$ID" != "ubuntu" ]; then
+        log_error "本脚本仅支持 Ubuntu 系统"
+        log_error "当前系统: $PRETTY_NAME"
+        exit 1
+    fi
+    
+    if [ "$VERSION_ID" != "24.04" ]; then
+        log_error "本脚本仅支持 Ubuntu 24.04 LTS"
+        log_error "当前版本: $VERSION_ID"
+        exit 1
+    fi
+    
+    log_success "检测到系统: Ubuntu 24.04 LTS"
+}
+
+# 检查系统要求
+check_requirements() {
+    log_info "检查系统要求..."
+    
+    # CPU
     cpu_cores=$(nproc)
-    if [ "$cpu_cores" -lt 2 ]; then
-        log_warn "CPU核心数不足，建议至少2核 (当前: ${cpu_cores}核)"
+    if [ "$cpu_cores" -lt 4 ]; then
+        log_warn "CPU核心数不足，建议至少4核 (当前: ${cpu_cores}核)"
+    else
+        log_success "CPU核心数: ${cpu_cores}核"
     fi
     
-    # 检查内存
+    # 内存
     mem_total=$(free -g | awk '/^Mem:/{print $2}')
-    if [ "$mem_total" -lt 4 ]; then
-        log_warn "内存不足，建议至少4GB (当前: ${mem_total}GB)"
+    if [ "$mem_total" -lt 8 ]; then
+        log_warn "内存不足，建议至少8GB (当前: ${mem_total}GB)"
+    else
+        log_success "内存: ${mem_total}GB"
     fi
     
-    # 检查磁盘空间
+    # 磁盘
     disk_free=$(df -BG / | awk 'NR==2 {print $4}' | sed 's/G//')
     if [ "$disk_free" -lt 50 ]; then
         log_warn "磁盘空间不足，建议至少50GB (当前剩余: ${disk_free}GB)"
+    else
+        log_success "磁盘空间: ${disk_free}GB 可用"
     fi
-    
-    log_success "系统检查完成"
 }
 
-# 安装Docker
-install_docker() {
-    if command -v docker &> /dev/null; then
-        log_info "Docker已安装，版本: $(docker --version)"
+# 安装系统依赖 (仅运行时库)
+install_system_deps() {
+    log_info "更新软件源..."
+    apt-get update
+    
+    log_info "安装运行时依赖库..."
+    DEBIAN_FRONTEND=noninteractive apt-get install -y \
+        libpcap0.8 libssl3 zlib1g \
+        libreadline8 libncurses6 \
+        python3 \
+        net-tools tcpdump iproute2 \
+        systemd \
+        libmaxminddb0 libkrb5-3 \
+        default-jre-headless
+    
+    log_success "运行时依赖安装完成"
+}
+
+# 创建系统用户
+create_user() {
+    if id "$SERVICE_USER" &>/dev/null; then
+        log_info "用户 $SERVICE_USER 已存在"
+    else
+        useradd -r -s /bin/bash -d $INSTALL_DIR -m $SERVICE_USER
+        log_success "创建服务用户: $SERVICE_USER"
+    fi
+}
+
+# 创建目录结构
+create_directories() {
+    log_info "创建目录结构..."
+    
+    mkdir -p $INSTALL_DIR/{bin,config,web}
+    mkdir -p $DATA_DIR/{postgres,redis,kafka,zeek-logs,pcap,backups}
+    mkdir -p $LOG_DIR/{nta,postgres,redis,kafka,zeek}
+    
+    log_success "目录创建完成"
+}
+
+# 安装PostgreSQL (预编译包)
+install_postgres() {
+    log_info "安装 PostgreSQL (预编译包)..."
+    
+    if [ -d "/opt/postgres" ]; then
+        log_info "PostgreSQL 已安装，跳过"
         return
     fi
     
-    log_info "安装Docker..."
+    cd $SCRIPT_DIR/depend
     
-    if [ -f "docker/docker-24.0.7.tgz" ]; then
-        tar -xzf docker/docker-24.0.7.tgz
-        cp docker/* /usr/bin/
-        
-        # 创建systemd服务
-        cat > /etc/systemd/system/docker.service << 'EOF'
+    log_info "解压 PostgreSQL..."
+    tar -xzf postgresql-*-ubuntu24.04-amd64.tar.gz -C /
+    
+    # 初始化数据库
+    chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR/postgres
+    su - $SERVICE_USER -c "/opt/postgres/bin/initdb -D $DATA_DIR/postgres"
+    
+    # 配置PostgreSQL
+    cat >> $DATA_DIR/postgres/postgresql.conf << EOF
+listen_addresses = 'localhost'
+port = 5432
+max_connections = 200
+shared_buffers = 256MB
+EOF
+    
+    cat > $DATA_DIR/postgres/pg_hba.conf << EOF
+local   all             all                                     trust
+host    all             all             127.0.0.1/32            trust
+host    all             all             ::1/128                 trust
+EOF
+    
+    chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR/postgres
+    
+    log_success "PostgreSQL 安装完成"
+}
+
+# 安装Redis (预编译包)
+install_redis() {
+    log_info "安装 Redis (预编译包)..."
+    
+    if [ -d "/opt/redis" ]; then
+        log_info "Redis 已安装，跳过"
+        return
+    fi
+    
+    cd $SCRIPT_DIR/depend
+    
+    log_info "解压 Redis..."
+    tar -xzf redis-*-ubuntu24.04-amd64.tar.gz -C /
+    
+    # 配置Redis
+    mkdir -p /opt/redis/etc
+    cat > /opt/redis/etc/redis.conf << EOF
+bind 127.0.0.1
+port 6379
+daemonize no
+dir $DATA_DIR/redis
+logfile $LOG_DIR/redis/redis.log
+appendonly yes
+appendfilename "appendonly.aof"
+EOF
+    
+    chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR/redis
+    
+    log_success "Redis 安装完成"
+}
+
+# 安装Kafka (预编译包)
+install_kafka() {
+    log_info "安装 Kafka (预编译包)..."
+    
+    if [ -d "/opt/kafka" ]; then
+        log_info "Kafka 已安装，跳过"
+        return
+    fi
+    
+    cd $SCRIPT_DIR/depend
+    
+    log_info "解压 Kafka..."
+    tar -xzf kafka-*-bin.tar.gz -C /
+    
+    # 配置Kafka
+    cat > /opt/kafka/config/server.properties << EOF
+broker.id=0
+listeners=PLAINTEXT://localhost:9092
+log.dirs=$DATA_DIR/kafka
+num.partitions=8
+log.retention.hours=168
+log.retention.bytes=10737418240
+zookeeper.connect=localhost:2181
+auto.create.topics.enable=true
+EOF
+    
+    # 配置Zookeeper
+    cat > /opt/kafka/config/zookeeper.properties << EOF
+dataDir=$DATA_DIR/kafka/zookeeper
+clientPort=2181
+maxClientCnxns=0
+admin.enableServer=false
+EOF
+    
+    mkdir -p $DATA_DIR/kafka/zookeeper
+    chown -R $SERVICE_USER:$SERVICE_USER /opt/kafka $DATA_DIR/kafka
+    
+    log_success "Kafka 安装完成"
+}
+
+# 安装Zeek (预编译包)
+install_zeek() {
+    log_info "安装 Zeek (预编译包)..."
+    
+    if [ -d "/opt/zeek" ]; then
+        log_info "Zeek 已安装，跳过"
+        return
+    fi
+    
+    cd $SCRIPT_DIR/depend
+    
+    log_info "解压 Zeek..."
+    tar -xzf zeek-*-ubuntu24.04-amd64.tar.gz -C /
+    
+    # 配置Zeek
+    cat > /opt/zeek/etc/node.cfg << EOF
+[zeek]
+type=standalone
+host=localhost
+interface=eth0
+EOF
+    
+    cat > /opt/zeek/etc/networks.cfg << EOF
+10.0.0.0/8      Private IP space
+172.16.0.0/12   Private IP space
+192.168.0.0/16  Private IP space
+EOF
+    
+    # 复制自定义脚本
+    if [ -d "$SCRIPT_DIR/zeek-scripts" ]; then
+        cp -r $SCRIPT_DIR/zeek-scripts/* /opt/zeek/share/zeek/site/
+    fi
+    
+    echo "@load site" >> /opt/zeek/share/zeek/site/local.zeek
+    
+    chown -R root:root /opt/zeek
+    chown -R $SERVICE_USER:$SERVICE_USER $DATA_DIR/zeek-logs
+    
+    log_success "Zeek 安装完成"
+}
+
+# 安装NTA应用
+install_nta() {
+    log_info "安装 NTA 应用..."
+    
+    # 复制二进制文件
+    cp $SCRIPT_DIR/bin/nta-server $INSTALL_DIR/bin/
+    cp $SCRIPT_DIR/bin/nta-kafka-consumer $INSTALL_DIR/bin/
+    chmod +x $INSTALL_DIR/bin/*
+    
+    # 复制Web前端
+    cp -r $SCRIPT_DIR/web/* $INSTALL_DIR/web/
+    
+    # 复制配置文件
+    cp -r $SCRIPT_DIR/config/* $INSTALL_DIR/config/
+    
+    chown -R $SERVICE_USER:$SERVICE_USER $INSTALL_DIR
+    
+    log_success "NTA 应用安装完成"
+}
+
+# 创建systemd服务
+create_services() {
+    log_info "创建 systemd 服务..."
+    
+    # PostgreSQL服务
+    cat > /etc/systemd/system/nta-postgres.service << EOF
 [Unit]
-Description=Docker Application Container Engine
-After=network-online.target firewalld.service
-Wants=network-online.target
+Description=NTA PostgreSQL Database
+After=network.target
 
 [Service]
-Type=notify
-ExecStart=/usr/bin/dockerd
-ExecReload=/bin/kill -s HUP $MAINPID
-LimitNOFILE=infinity
-LimitNPROC=infinity
-LimitCORE=infinity
-TimeoutStartSec=0
-Delegate=yes
-KillMode=process
+Type=forking
+User=$SERVICE_USER
+Group=$SERVICE_USER
+ExecStart=/opt/postgres/bin/pg_ctl start -D $DATA_DIR/postgres -l $LOG_DIR/postgres/postgres.log
+ExecStop=/opt/postgres/bin/pg_ctl stop -D $DATA_DIR/postgres
+ExecReload=/opt/postgres/bin/pg_ctl reload -D $DATA_DIR/postgres
 Restart=on-failure
-StartLimitBurst=3
-StartLimitInterval=60s
+TimeoutSec=300
 
 [Install]
 WantedBy=multi-user.target
 EOF
-        
-        systemctl daemon-reload
-        systemctl enable docker
-        systemctl start docker
-        
-        log_success "Docker安装完成"
-    else
-        log_error "Docker安装包不存在"
-        exit 1
-    fi
-}
+    
+    # Redis服务
+    cat > /etc/systemd/system/nta-redis.service << EOF
+[Unit]
+Description=NTA Redis Server
+After=network.target
 
-# 安装Docker Compose
-install_docker_compose() {
-    if command -v docker-compose &> /dev/null; then
-        log_info "Docker Compose已安装，版本: $(docker-compose --version)"
-        return
-    fi
-    
-    log_info "安装Docker Compose..."
-    
-    if [ -f "docker-compose" ]; then
-        cp docker-compose /usr/local/bin/
-        chmod +x /usr/local/bin/docker-compose
-        log_success "Docker Compose安装完成"
-    else
-        log_error "Docker Compose文件不存在"
-        exit 1
-    fi
-}
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+ExecStart=/opt/redis/bin/redis-server /opt/redis/etc/redis.conf
+Restart=always
 
-# 加载镜像
-load_images() {
-    log_info "加载Docker镜像..."
-    
-    if [ ! -d "images" ]; then
-        log_error "镜像目录不存在"
-        exit 1
-    fi
-    
-    cd images
-    
-    # 基础镜像
-    log_info "加载基础组件镜像..."
-    docker load -i postgres.tar
-    docker load -i redis.tar
-    
-    # 应用镜像
-    log_info "加载应用镜像..."
-    docker load -i nta-server.tar
-    docker load -i nta-web.tar
-    docker load -i nta-zeek.tar
-    
-    # 微服务镜像 (新增)
-    log_info "加载微服务镜像..."
-    docker load -i nta-auth-service.tar
-    docker load -i nta-asset-service.tar
-    docker load -i nta-detection-service.tar
-    docker load -i nta-alert-service.tar
-    docker load -i nta-report-service.tar
-    docker load -i nta-notification-service.tar
-    docker load -i nta-probe-service.tar
-    docker load -i nta-intel-service.tar
-    
-    # API网关和基础设施 (新增)
-    log_info "加载基础设施镜像..."
-    docker load -i nta-traefik.tar
-    docker load -i consul.tar
-    docker load -i jaeger.tar
-    
-    # 流处理镜像
-    log_info "加载流处理组件镜像..."
-    docker load -i zookeeper.tar
-    docker load -i kafka.tar
-    docker load -i flink.tar
-    docker load -i nta-kafka-consumer.tar
-    
-    # 监控镜像
-    log_info "加载监控组件镜像..."
-    docker load -i prometheus.tar
-    docker load -i grafana.tar
-    
-    cd ..
-    
-    log_success "所有镜像加载完成"
-    
-    # 显示镜像列表
-    log_info "已加载的镜像："
-    docker images | grep -E "nta-|postgres|redis|zookeeper|kafka|flink|prometheus|grafana|consul|jaeger|traefik"
-}
-
-# 配置系统参数 (针对Kafka/Flink优化)
-configure_system() {
-    log_info "优化系统参数..."
-    
-    # 文件描述符限制
-    if ! grep -q "* soft nofile 65536" /etc/security/limits.conf; then
-        cat >> /etc/security/limits.conf << EOF
-* soft nofile 65536
-* hard nofile 65536
-* soft nproc 32000
-* hard nproc 32000
+[Install]
+WantedBy=multi-user.target
 EOF
-    fi
     
-    # 内核参数优化 (Kafka需要)
-    if ! grep -q "vm.max_map_count" /etc/sysctl.conf; then
-        cat >> /etc/sysctl.conf << EOF
-# Kafka/Flink 优化
-vm.max_map_count=262144
-vm.swappiness=1
-net.core.somaxconn=1024
-net.ipv4.tcp_max_syn_backlog=2048
+    # Zookeeper服务
+    cat > /etc/systemd/system/nta-zookeeper.service << EOF
+[Unit]
+Description=NTA Zookeeper Service
+After=network.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+Environment="KAFKA_HOME=/opt/kafka"
+Environment="LOG_DIR=$LOG_DIR/kafka"
+ExecStart=/opt/kafka/bin/zookeeper-server-start.sh /opt/kafka/config/zookeeper.properties
+Restart=on-failure
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
 EOF
-        sysctl -p
-    fi
     
-    log_success "系统参数配置完成"
+    # Kafka服务
+    cat > /etc/systemd/system/nta-kafka.service << EOF
+[Unit]
+Description=NTA Kafka Service
+After=network.target nta-zookeeper.service
+Requires=nta-zookeeper.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+Environment="KAFKA_HOME=/opt/kafka"
+Environment="LOG_DIR=$LOG_DIR/kafka"
+ExecStart=/opt/kafka/bin/kafka-server-start.sh /opt/kafka/config/server.properties
+Restart=on-failure
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Zeek服务
+    cat > /etc/systemd/system/nta-zeek.service << EOF
+[Unit]
+Description=NTA Zeek Network Monitor
+After=network.target nta-kafka.service
+Requires=nta-kafka.service
+
+[Service]
+Type=forking
+User=root
+Environment="PATH=/opt/zeek/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+ExecStart=/opt/zeek/bin/zeekctl deploy
+ExecStop=/opt/zeek/bin/zeekctl stop
+ExecReload=/opt/zeek/bin/zeekctl restart
+Restart=on-failure
+TimeoutSec=300
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # Kafka Consumer服务
+    cat > /etc/systemd/system/nta-kafka-consumer.service << EOF
+[Unit]
+Description=NTA Kafka Consumer
+After=network.target nta-kafka.service nta-postgres.service
+Requires=nta-kafka.service nta-postgres.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=/opt/zeek/bin:/opt/postgres/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=$INSTALL_DIR/bin/nta-kafka-consumer
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    # NTA主服务
+    cat > /etc/systemd/system/nta-server.service << EOF
+[Unit]
+Description=NTA Server
+After=network.target nta-postgres.service nta-redis.service nta-kafka.service
+Requires=nta-postgres.service nta-redis.service
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+Group=$SERVICE_USER
+WorkingDirectory=$INSTALL_DIR
+Environment="PATH=/opt/zeek/bin:/opt/postgres/bin:/usr/local/bin:/usr/bin:/bin"
+ExecStart=$INSTALL_DIR/bin/nta-server -config $INSTALL_DIR/config/nta.yaml
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+EOF
+    
+    systemctl daemon-reload
+    
+    log_success "Systemd 服务创建完成"
+}
+
+# 初始化数据库
+init_database() {
+    log_info "初始化数据库..."
+    
+    # 启动PostgreSQL
+    systemctl start nta-postgres
+    sleep 5
+    
+    # 创建数据库和用户
+    su - $SERVICE_USER -c "/opt/postgres/bin/createuser -s nta 2>/dev/null" || true
+    su - $SERVICE_USER -c "/opt/postgres/bin/createdb -O nta nta 2>/dev/null" || true
+    su - $SERVICE_USER -c "/opt/postgres/bin/psql -d nta -c \"ALTER USER nta WITH PASSWORD 'nta_password';\" 2>/dev/null" || true
+    
+    log_success "数据库初始化完成"
+}
+
+# 配置防火墙
+configure_firewall() {
+    log_info "配置防火墙..."
+    
+    if command -v ufw &> /dev/null; then
+        ufw allow 8080/tcp comment 'NTA API Server' || true
+        ufw allow 8090/tcp comment 'NTA Web UI' || true
+        log_success "防火墙配置完成 (ufw)"
+    else
+        log_warn "未检测到 UFW 防火墙，请手动开放端口 8080, 8090"
+    fi
 }
 
 # 启动服务
 start_services() {
-    log_info "启动NTA服务..."
+    log_info "启动服务..."
     
-    # 设置环境变量
-    export VERSION=$(cat VERSION 2>/dev/null || echo "v1.0.0")
-    export BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')
-    export GIT_COMMIT=$(cat GIT_COMMIT 2>/dev/null || echo "unknown")
+    # 启用服务自启动
+    systemctl enable nta-postgres nta-redis nta-zookeeper nta-kafka nta-kafka-consumer nta-server
     
-    # 启动Docker Compose
-    docker-compose up -d
+    # 按顺序启动服务
+    systemctl start nta-postgres
+    sleep 3
     
-    log_info "等待服务启动..."
-    sleep 10
+    systemctl start nta-redis
+    sleep 2
     
-    # 检查服务状态
-    log_info "检查服务状态..."
-    docker-compose ps
-    
-    # 等待Kafka就绪
-    log_info "等待Kafka集群启动..."
-    local max_wait=60
-    local wait_count=0
-    
-    while [ $wait_count -lt $max_wait ]; do
-        if docker exec nta-kafka kafka-broker-api-versions.sh --bootstrap-server localhost:9092 &>/dev/null; then
-            log_success "Kafka集群已就绪"
-            break
-        fi
-        sleep 2
-        wait_count=$((wait_count + 1))
-    done
-    
-    if [ $wait_count -eq $max_wait ]; then
-        log_warn "Kafka启动超时，请检查日志: docker logs nta-kafka"
-    fi
-    
-    # 部署Flink作业
-    if [ -f "flink-jobs/deploy-jobs.sh" ]; then
-        log_info "部署Flink流处理作业..."
-        
-        # 等待Flink就绪
-        sleep 15
-        
-        # 注意：Flink作业部署需要等待JobManager完全启动
-        log_info "等待Flink JobManager启动..."
-        local flink_wait=0
-        while [ $flink_wait -lt 30 ]; do
-            if curl -sf http://localhost:8081/overview &>/dev/null; then
-                log_success "Flink JobManager已就绪"
-                bash flink-jobs/deploy-jobs.sh || log_warn "Flink作业部署失败，请手动部署"
-                break
-            fi
-            sleep 2
-            flink_wait=$((flink_wait + 1))
-        done
-        
-        if [ $flink_wait -eq 30 ]; then
-            log_warn "Flink启动超时，请稍后手动部署作业"
-            log_info "手动部署命令: bash flink-jobs/deploy-jobs.sh"
-        fi
-    fi
-    
-    log_success "NTA服务启动完成"
-}
-
-# 健康检查
-health_check() {
-    log_info "执行健康检查..."
-    
-    local services=(
-        "nta-postgres:5432"
-        "nta-redis:6379"
-        "nta-consul:8500"
-        "nta-zookeeper:2181"
-        "nta-kafka:9092"
-        "nta-flink-jobmanager:8081"
-        "nta-traefik:80"
-        "nta-auth-service:8081"
-        "nta-asset-service:8082"
-        "nta-detection-service:8083"
-        "nta-alert-service:8084"
-        "nta-jaeger:16686"
-    )
-    
-    for service in "${services[@]}"; do
-        local name="${service%%:*}"
-        local port="${service##*:}"
-        
-        if docker ps | grep -q "$name"; then
-            log_success "$name 运行中"
-        else
-            log_warn "$name 未运行"
-        fi
-    done
-    
-    # 检查微服务健康状态
-    log_info "检查微服务健康状态..."
+    systemctl start nta-zookeeper
     sleep 5
     
-    if curl -sf http://localhost/api/v1/auth/users &>/dev/null 2>&1 || curl -sf http://localhost:8081/health &>/dev/null 2>&1; then
-        log_success "微服务API可访问"
-    else
-        log_warn "微服务API未就绪，可能正在启动中"
-    fi
+    systemctl start nta-kafka
+    sleep 10
+    
+    systemctl start nta-kafka-consumer
+    sleep 3
+    
+    systemctl start nta-server
+    sleep 3
+    
+    log_success "所有服务已启动"
 }
 
-# 显示访问信息
+# 检查服务状态
+check_services() {
+    log_info "检查服务状态..."
+    echo ""
+    
+    services=("nta-postgres" "nta-redis" "nta-zookeeper" "nta-kafka" "nta-kafka-consumer" "nta-server")
+    
+    for service in "${services[@]}"; do
+        if systemctl is-active --quiet $service; then
+            echo -e "  ${GREEN}●${NC} $service: 运行中"
+        else
+            echo -e "  ${RED}●${NC} $service: 未运行"
+        fi
+    done
+    
+    echo ""
+}
+
+# 显示部署信息
 show_info() {
+    local server_ip=$(hostname -I | awk '{print $1}')
+    
     echo ""
     echo "=========================================="
     echo "  NTA 系统部署完成！"
     echo "=========================================="
     echo ""
     echo "📊 访问地址:"
-    echo "  - Web界面:      http://$(hostname -I | awk '{print $1}')"
-    echo "  - API服务:      http://$(hostname -I | awk '{print $1}'):8080"
-    echo "  - Prometheus:   http://$(hostname -I | awk '{print $1}'):9090"
-    echo "  - Grafana:      http://$(hostname -I | awk '{print $1}'):3000"
-    echo "  - Flink Web UI: http://$(hostname -I | awk '{print $1}'):8081"
+    echo "  - Web界面:  http://${server_ip}:8090"
+    echo "  - API服务:  http://${server_ip}:8080"
     echo ""
     echo "🔑 默认账户:"
     echo "  - 用户名: admin"
     echo "  - 密码:   admin123"
     echo ""
-    echo "📝 常用命令:"
-    echo "  - 查看日志:   docker-compose logs -f [service]"
-    echo "  - 重启服务:   docker-compose restart [service]"
-    echo "  - 停止服务:   docker-compose stop"
-    echo "  - 启动服务:   docker-compose start"
-    echo "  - 查看状态:   docker-compose ps"
+    echo "📝 服务管理:"
+    echo "  - 查看状态: systemctl status nta-server"
+    echo "  - 查看日志: journalctl -u nta-server -f"
+    echo "  - 重启服务: systemctl restart nta-server"
+    echo "  - 停止服务: systemctl stop nta-server"
     echo ""
-    echo "🔧 流处理监控:"
-    echo "  - Kafka Topic: docker exec nta-kafka kafka-topics.sh --list --bootstrap-server localhost:9092"
-    echo "  - Flink Jobs:  curl http://localhost:8081/jobs"
+    echo "📂 安装目录:"
+    echo "  - 程序目录: $INSTALL_DIR"
+    echo "  - 数据目录: $DATA_DIR"
+    echo "  - 日志目录: $LOG_DIR"
     echo ""
+    echo "⚠️  重要提示:"
+    echo "  1. 首次登录后请立即修改默认密码"
+    echo "  2. 在 Web 界面配置 Zeek 监听网卡后启动探针"
+    echo "  3. 配置路径: 系统管理 > 探针管理 > 内置探针"
+    echo ""
+    echo "🔧 常用命令:"
+    echo "  - 查看所有服务: systemctl status 'nta-*'"
+    echo "  - 卸载系统:     bash $SCRIPT_DIR/uninstall.sh"
+    echo ""
+    echo "✅ 预编译安装，总用时约 5-10 分钟"
     echo "=========================================="
 }
 
@@ -362,20 +577,39 @@ main() {
     echo ""
     echo "╔════════════════════════════════════════╗"
     echo "║  NTA 网络流量分析系统 离线安装程序   ║"
-    echo "║     支持 Kafka/Flink 流处理架构      ║"
+    echo "║     Ubuntu 24.04 LTS 预编译版        ║"
     echo "╚════════════════════════════════════════╝"
     echo ""
     
     check_root
-    check_system
-    configure_system
-    install_docker
-    install_docker_compose
-    load_images
+    detect_os
+    check_requirements
+    
+    echo ""
+    read -p "是否继续安装? (y/n): " -n 1 -r
+    echo
+    if [[ ! $REPLY =~ ^[Yy]$ ]]; then
+        log_info "安装已取消"
+        exit 0
+    fi
+    
+    install_system_deps
+    create_user
+    create_directories
+    install_postgres
+    install_redis
+    install_kafka
+    install_zeek
+    install_nta
+    create_services
+    init_database
+    configure_firewall
     start_services
     sleep 5
-    health_check
+    check_services
     show_info
+    
+    log_success "安装完成! 🎉"
 }
 
 main "$@"

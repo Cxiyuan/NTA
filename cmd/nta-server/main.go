@@ -31,7 +31,7 @@ import (
 )
 
 var (
-	configFile = flag.String("config", "/app/config/nta.yaml", "Configuration file path")
+	configFile = flag.String("config", "/opt/nta/config/nta.yaml", "Configuration file path")
 	logLevel   = flag.String("log-level", "info", "Log level (debug, info, warn, error)")
 )
 
@@ -272,16 +272,16 @@ func main() {
 	
 	probeManager := probe.NewManager(db, rdb, logger)
 	auditService := audit.NewService(db, logger)
-	reportService := report.NewService(db, logger, "/opt/nta-probe/reports")
+	reportService := report.NewService(db, logger, "/var/lib/nta/reports")
 	notifyService := notification.NewService(db, logger)
-	pcapStorage := pcap.NewStorage(db, logger, "/app/pcap")
+	pcapStorage := pcap.NewStorage(db, logger, "/var/lib/nta/pcap")
 	zeekManager := zeek.NewManager(db, logger)
-	_ = zeek.NewLogParser("/opt/zeek/logs", logger)
+	_ = zeek.NewLogParser("/var/lib/nta/zeek-logs", logger)
 	
-	// Initialize Kafka manager
+	// Initialize Kafka manager (Flink removed - not using stream processing)
 	kafkaManager := kafka.NewManager(
-		"http://localhost:9092",
-		"http://localhost:8081",
+		"localhost:9092",
+		"",
 		logger,
 	)
 

@@ -4,18 +4,18 @@ server:
   mode: release
 
 zeek:
-  log_dir: /var/spool/zeek
-  script_dir: /app/zeek-scripts
+  log_dir: /var/lib/nta/zeek-logs
+  script_dir: /opt/zeek/share/zeek/site
   interface: eth0
 
 redis:
-  addr: nta-redis:6379
+  addr: localhost:6379
   password: ""
   db: 0
 
 database:
   type: postgres
-  dsn: host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable
+  dsn: host=localhost user=nta password=nta_password dbname=nta port=5432 sslmode=disable
 
 detection:
   scan:
@@ -40,11 +40,11 @@ threat_intel:
       api_key: "2ae1cf29a01ff74dd7cd3a71d97058a7568868698fb6f5ba5e0ae1802c44f7a4"
       enabled: true
   update_interval: 3600
-  local_feed_path: /app/config/threat_feed.json
+  local_feed_path: /opt/nta/config/threat_feed.json
 
 license:
-  license_file: /app/config/license.key
-  public_key_file: /app/config/public.pem
+  license_file: /opt/nta/config/license.key
+  public_key_file: /opt/nta/config/public.pem
 
 security:
   jwt_secret: CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG
@@ -58,6 +58,6 @@ security:
 
 backup:
   enabled: false
-  backup_dir: /app/backups
+  backup_dir: /var/lib/nta/backups
   interval_hours: 24
   retention_days: 7

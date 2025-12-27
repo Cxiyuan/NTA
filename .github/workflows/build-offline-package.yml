@@ -6,13 +6,16 @@ on:
   workflow_dispatch:
 
 env:
-  DOCKER_VERSION: "24.0.7"
-  DOCKER_COMPOSE_VERSION: "2.24.0"
-  CONTAINERD_VERSION: "1.7.11"
+  GO_VERSION: "1.23"
+  NODE_VERSION: "20"
+  ZEEK_VERSION: "6.0.3"
+  POSTGRES_VERSION: "15.5"
+  REDIS_VERSION: "7.2.3"
+  KAFKA_VERSION: "3.6.1"
 
 jobs:
   build-offline-package:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     
     steps:
       - name: Checkout code
@@ -21,11 +24,17 @@ jobs:
       - name: Set up environment variables
         run: |
           echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
-          echo "VERSION=$(git describe --tags --always || echo 'dev')" >> $GITHUB_ENV
+          echo "VERSION=$(git describe --tags --always || echo 'v2.0.0')" >> $GITHUB_ENV
           echo "GIT_COMMIT=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      - name: Verify Ubuntu version
+        run: |
+          . /etc/os-release
+          echo "Building on: $PRETTY_NAME"
+          if [ "$VERSION_ID" != "24.04" ]; then
+            echo "ERROR: This workflow requires Ubuntu 24.04"
+            exit 1
+          fi
 
       - name: Free up disk space
         run: |
@@ -35,1046 +44,305 @@ jobs:
           sudo rm -rf "$AGENT_TOOLSDIRECTORY"
           df -h
 
-      - name: Build backend image
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install build dependencies
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            --build-arg VERSION=${{ env.VERSION }} \
-            --build-arg BUILD_TIME=${{ env.BUILD_TIME }} \
-            --build-arg GIT_COMMIT=${{ env.GIT_COMMIT }} \
-            -t nta-server:v1.0.0 \
-            --output type=docker,dest=/tmp/nta-server.tar \
-            .
+          sudo apt-get update
+          sudo apt-get install -y \
+            build-essential cmake gcc g++ \
+            libpcap-dev libssl-dev zlib1g-dev \
+            libreadline-dev libncurses5-dev \
+            python3 python3-pip \
+            flex bison swig \
+            libmaxminddb-dev libkrb5-dev \
+            default-jdk
 
-      - name: Build Kafka consumer image
+      - name: Build backend binary
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-kafka-consumer:v1.0.0 \
-            -f cmd/kafka-consumer/Dockerfile \
-            --output type=docker,dest=/tmp/nta-kafka-consumer.tar \
-            .
+          mkdir -p /tmp/nta-build/bin
+          
+          # Build main server
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+            -ldflags="-X main.Version=${{ env.VERSION }} -X main.BuildTime=${{ env.BUILD_TIME }} -X main.GitCommit=${{ env.GIT_COMMIT }}" \
+            -o /tmp/nta-build/bin/nta-server \
+            ./cmd/nta-server
+          
+          # Build kafka consumer
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build \
+            -o /tmp/nta-build/bin/nta-kafka-consumer \
+            ./cmd/kafka-consumer
+          
+          chmod +x /tmp/nta-build/bin/*
+          
+          echo "✅ Go binaries built successfully"
+          ls -lh /tmp/nta-build/bin/
 
-      - name: Build frontend image
+      - name: Build frontend
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-web:v2.0.0 \
-            --output type=docker,dest=/tmp/nta-web.tar \
-            ./web
+          cd web
+          npm install
+          npm run build
+          
+          # Copy frontend build to package
+          mkdir -p /tmp/nta-build/web
+          cp -r dist/* /tmp/nta-build/web/
+          
+          echo "✅ Frontend built successfully"
 
-      - name: Build microservices images
+      - name: Build PostgreSQL
         run: |
-          # Auth Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-auth-service:v2.0.0 \
-            -f services/auth-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-auth-service.tar \
-            .
+          echo "🔨 Building PostgreSQL ${{ env.POSTGRES_VERSION }}..."
           
-          # Asset Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-asset-service:v2.0.0 \
-            -f services/asset-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-asset-service.tar \
-            .
+          cd /tmp
+          wget https://ftp.postgresql.org/pub/source/v${{ env.POSTGRES_VERSION }}/postgresql-${{ env.POSTGRES_VERSION }}.tar.gz
+          tar -xzf postgresql-${{ env.POSTGRES_VERSION }}.tar.gz
+          cd postgresql-${{ env.POSTGRES_VERSION }}
           
-          # Detection Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-detection-service:v2.0.0 \
-            -f services/detection-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-detection-service.tar \
-            .
+          ./configure --prefix=/opt/postgres --with-openssl
+          make -j$(nproc)
           
-          # Alert Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-alert-service:v2.0.0 \
-            -f services/alert-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-alert-service.tar \
-            .
+          # Install to temporary directory
+          mkdir -p /tmp/postgres-install
+          make DESTDIR=/tmp/postgres-install install
           
-          # Report Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-report-service:v2.0.0 \
-            -f services/report-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-report-service.tar \
-            .
+          # Create tarball
+          mkdir -p /tmp/nta-build/depend
+          cd /tmp/postgres-install
+          tar -czf /tmp/nta-build/depend/postgresql-${{ env.POSTGRES_VERSION }}-ubuntu24.04-amd64.tar.gz opt/
           
-          # Notification Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-notification-service:v2.0.0 \
-            -f services/notification-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-notification-service.tar \
-            .
-          
-          # Probe Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-probe-service:v2.0.0 \
-            -f services/probe-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-probe-service.tar \
-            .
-          
-          # Intel Service
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-intel-service:v2.0.0 \
-            -f services/intel-service/Dockerfile \
-            --output type=docker,dest=/tmp/nta-intel-service.tar \
-            .
-          
+          echo "✅ PostgreSQL built and packaged"
+          ls -lh /tmp/nta-build/depend/
 
-
-      - name: Build Traefik image
+      - name: Build Redis
         run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-traefik:v2.0.0 \
-            -f docker/traefik/Dockerfile \
-            --output type=docker,dest=/tmp/nta-traefik.tar \
-            .
-
-      - name: Build zeek image
-        run: |
-          docker buildx build \
-            --platform linux/amd64 \
-            -t nta-zeek:v1.0.0 \
-            --output type=docker,dest=/tmp/nta-zeek.tar \
-            ./docker/zeek
-
-      - name: Pull third-party images
-        run: |
-          docker pull --platform linux/amd64 postgres:15-alpine
-          docker pull --platform linux/amd64 redis:7-alpine
-          docker pull --platform linux/amd64 prom/prometheus:latest
-          docker pull --platform linux/amd64 grafana/grafana:latest
-          docker pull --platform linux/amd64 zookeeper:3.9
-          docker pull --platform linux/amd64 confluentinc/cp-kafka:7.5.0
-          docker pull --platform linux/amd64 flink:1.18-scala_2.12-java11
-          docker pull --platform linux/amd64 hashicorp/consul:1.17
-          docker pull --platform linux/amd64 jaegertracing/all-in-one:1.51
-
-      - name: Save third-party images
-        run: |
-          docker save postgres:15-alpine -o /tmp/postgres.tar
-          docker save redis:7-alpine -o /tmp/redis.tar
-          docker save prom/prometheus:latest -o /tmp/prometheus.tar
-          docker save grafana/grafana:latest -o /tmp/grafana.tar
-          docker save zookeeper:3.9 -o /tmp/zookeeper.tar
-          docker save confluentinc/cp-kafka:7.5.0 -o /tmp/kafka.tar
-          docker save flink:1.18-scala_2.12-java11 -o /tmp/flink.tar
-          docker save hashicorp/consul:1.17 -o /tmp/consul.tar
-          docker save jaegertracing/all-in-one:1.51 -o /tmp/jaeger.tar
-
-      - name: Download Docker offline packages
-        run: |
-          mkdir -p /tmp/docker-packages
+          echo "🔨 Building Redis ${{ env.REDIS_VERSION }}..."
           
-          # Download Docker Engine for CentOS/AliyunOS
-          curl -fsSL https://download.docker.com/linux/static/stable/x86_64/docker-${{ env.DOCKER_VERSION }}.tgz \
-            -o /tmp/docker-packages/docker-${{ env.DOCKER_VERSION }}.tgz
+          cd /tmp
+          wget https://download.redis.io/releases/redis-${{ env.REDIS_VERSION }}.tar.gz
+          tar -xzf redis-${{ env.REDIS_VERSION }}.tar.gz
+          cd redis-${{ env.REDIS_VERSION }}
           
-          # Download Docker Compose
-          curl -fsSL https://github.com/docker/compose/releases/download/v${{ env.DOCKER_COMPOSE_VERSION }}/docker-compose-linux-x86_64 \
-            -o /tmp/docker-packages/docker-compose
-          chmod +x /tmp/docker-packages/docker-compose
+          make -j$(nproc)
           
-          # Download containerd
-          curl -fsSL https://github.com/containerd/containerd/releases/download/v${{ env.CONTAINERD_VERSION }}/containerd-${{ env.CONTAINERD_VERSION }}-linux-amd64.tar.gz \
-            -o /tmp/docker-packages/containerd.tar.gz
+          # Install to temporary directory
+          mkdir -p /tmp/redis-install/opt/redis
+          make PREFIX=/tmp/redis-install/opt/redis install
+          
+          # Create tarball
+          cd /tmp/redis-install
+          tar -czf /tmp/nta-build/depend/redis-${{ env.REDIS_VERSION }}-ubuntu24.04-amd64.tar.gz opt/
+          
+          echo "✅ Redis built and packaged"
+          ls -lh /tmp/nta-build/depend/
 
-      - name: Create deployment scripts
+      - name: Download and package Kafka
         run: |
-          mkdir -p /tmp/nta-deploy
+          echo "📥 Downloading Kafka ${{ env.KAFKA_VERSION }}..."
           
-          # Create install.sh
-          cat > /tmp/nta-deploy/install.sh <<'INSTALL_EOF'
-          #!/bin/bash
-          set -e
-
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-          DOCKER_VERSION="24.0.7"
-          COMPOSE_VERSION="2.24.0"
-
-          # Color output
-          RED='\033[0;31m'
-          GREEN='\033[0;32m'
-          YELLOW='\033[1;33m'
-          NC='\033[0m'
-
-          log_info() {
-              echo -e "${GREEN}[信息]${NC} $1"
-          }
-
-          log_warn() {
-              echo -e "${YELLOW}[警告]${NC} $1"
-          }
-
-          log_error() {
-              echo -e "${RED}[错误]${NC} $1"
-          }
-
-          # Detect OS
-          detect_os() {
-              if [ -f /etc/os-release ]; then
-                  . /etc/os-release
-                  OS=$ID
-                  VERSION_ID=$VERSION_ID
-              else
-                  log_error "无法检测操作系统"
-                  exit 1
-              fi
-              
-              log_info "检测到操作系统: $OS $VERSION_ID"
-          }
-
-          # Check system requirements
-          check_requirements() {
-              log_info "正在检查系统要求..."
-              
-              # Check CPU cores
-              CPU_CORES=$(nproc)
-              if [ "$CPU_CORES" -lt 2 ]; then
-                  log_warn "CPU 核心数: $CPU_CORES (推荐: >= 2)"
-              else
-                  log_info "CPU 核心数: $CPU_CORES ✓"
-              fi
-              
-              # Check memory
-              TOTAL_MEM=$(free -g | awk '/^Mem:/{print $2}')
-              if [ "$TOTAL_MEM" -lt 4 ]; then
-                  log_warn "内存: ${TOTAL_MEM}GB (推荐: >= 4GB)"
-              else
-                  log_info "内存: ${TOTAL_MEM}GB ✓"
-              fi
-              
-              # Check disk space
-              DISK_SPACE=$(df -BG "$SCRIPT_DIR" | tail -1 | awk '{print $4}' | sed 's/G//')
-              if [ "$DISK_SPACE" -lt 50 ]; then
-                  log_warn "磁盘空间: ${DISK_SPACE}GB (推荐: >= 50GB)"
-              else
-                  log_info "磁盘空间: ${DISK_SPACE}GB ✓"
-              fi
-          }
-
-          # Install Docker
-          install_docker() {
-              if command -v docker &> /dev/null; then
-                  INSTALLED_VERSION=$(docker --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-                  log_info "Docker 已安装: $INSTALLED_VERSION"
-                  return 0
-              fi
-              
-              log_info "正在安装 Docker $DOCKER_VERSION..."
-              
-              cd "$SCRIPT_DIR/docker-packages"
-              tar xzf docker-${DOCKER_VERSION}.tgz
-              
-              # Copy binaries
-              cp docker/* /usr/bin/
-              
-              # Create systemd service
-              tee /etc/systemd/system/docker.service > /dev/null <<'DOCKER_SERVICE'
-          [Unit]
-          Description=Docker Application Container Engine
-          Documentation=https://docs.docker.com
-          After=network-online.target firewalld.service containerd.service docker.socket
-          Wants=network-online.target
-          Requires=docker.socket containerd.service
-
-          [Service]
-          Type=notify
-          ExecStart=/usr/bin/dockerd -H fd:// --containerd=/run/containerd/containerd.sock
-          ExecReload=/bin/kill -s HUP $MAINPID
-          TimeoutSec=0
-          RestartSec=2
-          Restart=always
-          StartLimitBurst=3
-          StartLimitInterval=60s
-          LimitNOFILE=infinity
-          LimitNPROC=infinity
-          LimitCORE=infinity
-          TasksMax=infinity
-          Delegate=yes
-          KillMode=process
-
-          [Install]
-          WantedBy=multi-user.target
-          DOCKER_SERVICE
-              
-              # Create docker socket
-              tee /etc/systemd/system/docker.socket > /dev/null <<'DOCKER_SOCKET'
-          [Unit]
-          Description=Docker Socket for the API
-          PartOf=docker.service
-
-          [Socket]
-          ListenStream=/var/run/docker.sock
-          SocketMode=0660
-          SocketUser=root
-          SocketGroup=docker
-
-          [Install]
-          WantedBy=sockets.target
-          DOCKER_SOCKET
-              
-              # Install containerd
-              if ! command -v containerd &> /dev/null; then
-                  log_info "正在安装 containerd..."
-                  if [ -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz" ]; then
-                      tar -xz -C /usr/local -f "$SCRIPT_DIR/docker-packages/containerd.tar.gz"
-                  else
-                      log_error "docker-packages/ 目录下未找到 containerd.tar.gz"
-                      exit 1
-                  fi
-                  
-                  tee /etc/systemd/system/containerd.service > /dev/null <<'CONTAINERD_SERVICE'
-          [Unit]
-          Description=containerd container runtime
-          Documentation=https://containerd.io
-          After=network.target
-
-          [Service]
-          ExecStartPre=/sbin/modprobe overlay
-          ExecStart=/usr/local/bin/containerd
-          Restart=always
-          RestartSec=5
-          Delegate=yes
-          KillMode=process
-          OOMScoreAdjust=-999
-          LimitNOFILE=1048576
-          LimitNPROC=infinity
-          LimitCORE=infinity
-          TasksMax=infinity
-
-          [Install]
-          WantedBy=multi-user.target
-          CONTAINERD_SERVICE
-              fi
-              
-              # Create docker group
-              if ! getent group docker > /dev/null 2>&1; then
-                  log_info "正在创建 docker 用户组..."
-                  groupadd docker
-              fi
-              
-              # Start services
-              systemctl daemon-reload
-              systemctl enable containerd docker.socket docker
-              systemctl start containerd docker.socket docker
-              
-              log_info "Docker 安装成功 ✓"
-          }
-
-          # Install Docker Compose
-          install_docker_compose() {
-              if command -v docker-compose &> /dev/null; then
-                  INSTALLED_VERSION=$(docker-compose --version | grep -oP '\d+\.\d+\.\d+' | head -1)
-                  log_info "Docker Compose 已安装: $INSTALLED_VERSION"
-                  return 0
-              fi
-              
-              log_info "正在安装 Docker Compose $COMPOSE_VERSION..."
-              
-              cp "$SCRIPT_DIR/docker-packages/docker-compose" /usr/local/bin/docker-compose
-              chmod +x /usr/local/bin/docker-compose
-              
-              log_info "Docker Compose 安装成功 ✓"
-          }
-
-          # Load Docker images
-          load_images() {
-              log_info "正在加载 Docker 镜像 (可能需要几分钟)..."
-              
-              cd "$SCRIPT_DIR/images"
-              for image in *.tar; do
-                  log_info "正在加载 $image..."
-                  docker load -i "$image"
-              done
-              
-              log_info "所有镜像加载成功 ✓"
-          }
-
-          # Configure firewall
-          configure_firewall() {
-              log_info "正在配置防火墙..."
-              
-              if command -v firewall-cmd &> /dev/null; then
-                  if systemctl is-active --quiet firewalld; then
-                      firewall-cmd --permanent --add-port=80/tcp 2>/dev/null || log_warn "添加端口失败 80"
-                      firewall-cmd --permanent --add-port=3000/tcp 2>/dev/null || log_warn "添加端口失败 3000"
-                      firewall-cmd --permanent --add-port=9090/tcp 2>/dev/null || log_warn "添加端口失败 9090"
-                      firewall-cmd --reload 2>/dev/null || log_warn "重载防火墙失败"
-                      log_info "防火墙配置成功 (firewalld) ✓"
-                  else
-                      log_warn "firewalld 服务未运行，跳过防火墙配置"
-                  fi
-              elif command -v ufw &> /dev/null; then
-                  if systemctl is-active --quiet ufw 2>/dev/null || ufw status 2>/dev/null | grep -q "Status: active"; then
-                      ufw allow 80/tcp 2>/dev/null || log_warn "添加端口失败 80"
-                      ufw allow 3000/tcp 2>/dev/null || log_warn "添加端口失败 3000"
-                      ufw allow 9090/tcp 2>/dev/null || log_warn "添加端口失败 9090"
-                      log_info "防火墙配置成功 (ufw) ✓"
-                  else
-                      log_warn "ufw 服务未激活，跳过防火墙配置"
-                  fi
-              else
-                  log_warn "未检测到防火墙，跳过"
-              fi
-          }
-
-          # Create configuration
-          create_config() {
-              log_info "正在创建配置文件..."
-              
-              mkdir -p "$SCRIPT_DIR/config"
-              
-              if [ ! -f "$SCRIPT_DIR/config/nta.yaml" ]; then
-                  cp "$SCRIPT_DIR/config/nta.yaml.example" "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "已创建 config/nta.yaml"
-              fi
-              
-              # Generate random JWT secret
-              JWT_SECRET=$(openssl rand -base64 32 2>/dev/null || cat /dev/urandom | tr -dc 'a-zA-Z0-9' | fold -w 32 | head -n 1)
-              sed -i "s|CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG|$JWT_SECRET|g" "$SCRIPT_DIR/config/nta.yaml"
-              
-              # Fix database and redis addresses for Docker container networking
-              log_info "正在配置容器网络..."
-              
-              # Fix PostgreSQL hostname - ensure using container name
-              if grep -q "host=localhost" "$SCRIPT_DIR/config/nta.yaml"; then
-                  sed -i 's/host=localhost/host=nta-postgres/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "修复数据库地址: localhost -> nta-postgres"
-              fi
-              if grep -q "host=postgres " "$SCRIPT_DIR/config/nta.yaml"; then
-                  sed -i 's/host=postgres /host=nta-postgres /g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "修复数据库地址: postgres -> nta-postgres"
-              fi
-              
-              # Fix Redis hostname - ensure using container name
-              if grep -q "addr: localhost:6379" "$SCRIPT_DIR/config/nta.yaml"; then
-                  sed -i 's/addr: localhost:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "修复 Redis 地址: localhost -> nta-redis"
-              fi
-              if grep -q "addr: redis:6379" "$SCRIPT_DIR/config/nta.yaml"; then
-                  sed -i 's/addr: redis:6379/addr: nta-redis:6379/g' "$SCRIPT_DIR/config/nta.yaml"
-                  log_info "修复 Redis 地址: redis -> nta-redis"
-              fi
-              
-              log_info "配置创建成功 ✓"
-          }
+          cd /tmp
+          wget https://archive.apache.org/dist/kafka/${{ env.KAFKA_VERSION }}/kafka_2.13-${{ env.KAFKA_VERSION }}.tgz
           
-          # Verify container networking
-          verify_network() {
-              log_info "正在验证容器网络配置..."
-              
-              # Check if nta-postgres is reachable from nta-server
-              if docker exec nta-server ping -c 2 nta-postgres > /dev/null 2>&1; then
-                  log_info "✓ nta-server 可以访问 nta-postgres"
-              else
-                  log_warn "✗ nta-server 无法访问 nta-postgres (容器可能仍在启动中)"
-              fi
-              
-              # Check if nta-redis is reachable from nta-server
-              if docker exec nta-server ping -c 2 nta-redis > /dev/null 2>&1; then
-                  log_info "✓ nta-server 可以访问 nta-redis"
-              else
-                  log_warn "✗ nta-server 无法访问 nta-redis (容器可能仍在启动中)"
-              fi
-          }
-
-          # Deploy NTA
-          deploy_nta() {
-              log_info "正在部署 NTA 系统..."
-              
-              cd "$SCRIPT_DIR"
-              
-              # Verify docker-compose.yml exists
-              if [ ! -f docker-compose.yml ]; then
-                  log_error "未在以下目录找到 docker-compose.yml: $SCRIPT_DIR"
-                  exit 1
-              fi
-              
-              # Verify config exists
-              if [ ! -f config/nta.yaml ]; then
-                  log_error "未找到 config/nta.yaml"
-                  exit 1
-              fi
-              
-              # Verify config content
-              log_info "正在验证配置..."
-              if grep -q "host=localhost" config/nta.yaml; then
-                  log_error "配置包含 'host=localhost' - 这在 Docker 中会失败"
-                  log_error "期望 'host=nta-postgres'"
-                  cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
-                  exit 1
-              fi
-              if grep -q "addr: localhost:6379" config/nta.yaml; then
-                  log_error "配置包含 'addr: localhost:6379' - 这在 Docker 中会失败"
-                  log_error "期望 'addr: nta-redis:6379'"
-                  cat config/nta.yaml | grep -E "(dsn|addr)" | head -5
-                  exit 1
-              fi
-              log_info "配置验证成功 ✓"
-              log_info "  数据库: $(grep 'dsn:' config/nta.yaml | head -1)"
-              log_info "  Redis:    $(grep 'addr:' config/nta.yaml | head -1)"
-              
-              export VERSION="${VERSION:-dev}"
-              export BUILD_TIME="${BUILD_TIME:-$(date -u +'%Y-%m-%dT%H:%M:%SZ')}"
-              export GIT_COMMIT="${GIT_COMMIT:-unknown}"
-              
-              log_info "正在启动 Docker Compose..."
-              docker-compose up -d
-              
-              if [ $? -ne 0 ]; then
-                  log_error "docker-compose up 失败"
-                  exit 1
-              fi
-              
-              log_info "容器已启动，等待初始化..."
-              sleep 5
-              
-              # Verify network exists
-              if docker network ls | grep -q "nta.*network"; then
-                  log_info "Docker 网络创建成功 ✓"
-              else
-                  log_warn "未找到 NTA 网络，容器可能存在网络问题"
-              fi
-              
-              log_info "NTA 部署已启动 ✓"
-          }
-
-          # Check deployment
-          check_deployment() {
-              log_info "正在检查部署状态..."
-              
-              log_info "等待容器启动..."
-              sleep 10
-              
-              # Show all container status
-              log_info "容器状态:"
-              docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-              echo ""
-              
-              # Check if nta-server container exists
-              if ! docker ps -a | grep -q "nta-server"; then
-                  log_error "未找到 nta-server 容器"
-                  log_info "可用容器:"
-                  docker ps -a
-                  exit 1
-              fi
-              
-              # Check if nta-server is restarting
-              if docker ps -a | grep "nta-server" | grep -q "Restarting"; then
-                  log_error "nta-server 容器正在重启 - 检测到配置问题"
-                  echo ""
-                  log_info "nta-server 最近的日志:"
-                  docker logs nta-server --tail 100 2>&1 || true
-                  echo ""
-                  log_error "常见问题:"
-                  log_error "  1. 数据库连接失败 - 检查 postgres 容器是否健康"
-                  log_error "  2. Redis 连接失败 - 检查 redis 容器是否健康"
-                  log_error "  3. 配置文件问题 - 验证 config/nta.yaml"
-                  echo ""
-                  log_info "故障排查步骤:"
-                  log_info "  1. 检查数据库: docker logs nta-postgres"
-                  log_info "  2. 检查 Redis: docker logs nta-redis"
-                  log_info "  3. 检查网络: docker network inspect nta_nta-network"
-                  log_info "  4. 验证配置: cat config/nta.yaml | grep -E '(dsn|addr)'"
-                  exit 1
-              fi
-              
-              # Wait for nta-server to be Up
-              log_info "等待 nta-server 健康检查..."
-              local wait_attempts=30
-              local wait_count=0
-              
-              while [ $wait_count -lt $wait_attempts ]; do
-                  if docker ps | grep "nta-server" | grep -q "Up"; then
-                      log_info "nta-server 正在运行"
-                      break
-                  fi
-                  wait_count=$((wait_count + 1))
-                  echo -n "."
-                  sleep 2
-              done
-              echo ""
-              
-              if [ $wait_count -ge $wait_attempts ]; then
-                  log_error "nta-server 在 60 秒内未能启动"
-                  docker logs nta-server --tail 100 2>&1 || true
-                  exit 1
-              fi
-              
-              # Verify network connectivity
-              sleep 3
-              verify_network
-              
-              # Wait for health check endpoint
-              log_info "等待 API 健康检查..."
-              local max_attempts=30
-              local attempt=0
-              
-              while [ $attempt -lt $max_attempts ]; do
-                  if curl -sf http://localhost:8080/health > /dev/null 2>&1; then
-                      log_info "NTA 系统健康 ✓"
-                      echo ""
-                      log_info "========================================="
-                      log_info "  NTA 系统部署成功!"
-                      log_info "========================================="
-                      echo ""
-                      log_info "访问地址:"
-                      log_info "  Web 界面:      http://$(hostname -I | awk '{print $1}')/"
-                      log_info "  API 服务器:  http://$(hostname -I | awk '{print $1}'):8080"
-                      log_info "  健康检查 API:  http://$(hostname -I | awk '{print $1}'):8080/health"
-                      echo ""
-                      log_info "监控:"
-                      log_info "  Grafana:     http://$(hostname -I | awk '{print $1}'):3000 (admin/admin)"
-                      log_info "  Prometheus:  http://$(hostname -I | awk '{print $1}'):9090"
-                      echo ""
-                      log_info "管理命令:"
-                      log_info "  查看日志:       docker logs -f nta-server"
-                      log_info "  查看所有日志:   docker-compose logs -f"
-                      log_info "  重启服务: docker-compose restart nta-server"
-                      log_info "  停止所有:        docker-compose down"
-                      log_info "  启动所有:       docker-compose up -d"
-                      echo ""
-                      log_info "默认凭据: admin / admin"
-                      echo ""
-                      return 0
-                  fi
-                  attempt=$((attempt + 1))
-                  echo -n "."
-                  sleep 2
-              done
-              
-              echo ""
-              log_error "NTA API 健康检查在 60 秒后失败"
-              echo ""
-              log_info "最终容器状态:"
-              docker ps -a --filter "name=nta-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
-              echo ""
-              log_info "nta-server 日志:"
-              docker logs nta-server --tail 100 2>&1 || true
-              echo ""
-              log_warn "系统可能仍在启动中。您可以:"
-              log_warn "  1. 再等待几分钟并检查: curl http://localhost:8080/health"
-              log_warn "  2. 检查日志: docker logs -f nta-server"
-              log_warn "  3. 重启: docker-compose restart nta-server"
-              exit 1
-          }
-
-          # Main installation
-          main() {
-              echo ""
-              log_info "========================================="
-              log_info "  NTA 离线安装"
-              log_info "========================================="
-              echo ""
-              
-              detect_os
-              check_requirements
-              install_docker
-              install_docker_compose
-              load_images
-              configure_firewall
-              create_config
-              deploy_nta
-              check_deployment
-          }
-
-          main "$@"
-          INSTALL_EOF
+          # Repackage for our directory structure
+          mkdir -p /tmp/kafka-install/opt
+          tar -xzf kafka_2.13-${{ env.KAFKA_VERSION }}.tgz
+          mv kafka_2.13-${{ env.KAFKA_VERSION }} /tmp/kafka-install/opt/kafka
           
-          chmod +x /tmp/nta-deploy/install.sh
+          # Create tarball
+          cd /tmp/kafka-install
+          tar -czf /tmp/nta-build/depend/kafka-${{ env.KAFKA_VERSION }}-bin.tar.gz opt/
+          
+          echo "✅ Kafka packaged"
+          ls -lh /tmp/nta-build/depend/
 
-      - name: Create uninstall script
+      - name: Build Zeek
         run: |
-          cat > /tmp/nta-deploy/uninstall.sh <<'UNINSTALL_EOF'
-          #!/bin/bash
-          set -e
+          echo "🔨 Building Zeek ${{ env.ZEEK_VERSION }} (this will take 15-30 minutes)..."
+          
+          cd /tmp
+          wget https://download.zeek.org/zeek-${{ env.ZEEK_VERSION }}.tar.gz
+          tar -xzf zeek-${{ env.ZEEK_VERSION }}.tar.gz
+          cd zeek-${{ env.ZEEK_VERSION }}
+          
+          ./configure --prefix=/opt/zeek
+          make -j$(nproc)
+          
+          # Install to temporary directory
+          mkdir -p /tmp/zeek-install
+          make DESTDIR=/tmp/zeek-install install
+          
+          # Create tarball
+          cd /tmp/zeek-install
+          tar -czf /tmp/nta-build/depend/zeek-${{ env.ZEEK_VERSION }}-ubuntu24.04-amd64.tar.gz opt/
+          
+          echo "✅ Zeek built and packaged"
+          ls -lh /tmp/nta-build/depend/
 
-          SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+      - name: Package configuration files
+        run: |
+          mkdir -p /tmp/nta-build/config
+          mkdir -p /tmp/nta-build/scripts
+          mkdir -p /tmp/nta-build/zeek-scripts
+          
+          # Copy configuration files
+          cp -r config/* /tmp/nta-build/config/ || true
+          
+          # Copy zeek scripts
+          cp -r zeek-scripts/* /tmp/nta-build/zeek-scripts/ || true
+          
+          # Copy deployment scripts
+          cp install.sh /tmp/nta-build/
+          cp uninstall.sh /tmp/nta-build/
+          cp scripts/init-databases.sh /tmp/nta-build/scripts/ || true
+          
+          chmod +x /tmp/nta-build/*.sh
+          chmod +x /tmp/nta-build/scripts/*.sh || true
 
-          RED='\033[0;31m'
-          YELLOW='\033[1;33m'
-          NC='\033[0m'
+      - name: Create offline package metadata
+        run: |
+          cat > /tmp/nta-build/VERSION.txt << EOF
+          NTA Network Traffic Analysis System
+          ==========================================
+          Version: ${{ env.VERSION }}
+          Build Time: ${{ env.BUILD_TIME }}
+          Git Commit: ${{ env.GIT_COMMIT }}
+          Build Environment: Ubuntu 24.04 LTS
+          
+          Components (Pre-compiled):
+          - Go: ${{ env.GO_VERSION }}
+          - Node.js: ${{ env.NODE_VERSION }}
+          - PostgreSQL: ${{ env.POSTGRES_VERSION }} ✅ (pre-compiled)
+          - Redis: ${{ env.REDIS_VERSION }} ✅ (pre-compiled)
+          - Kafka: ${{ env.KAFKA_VERSION }} ✅ (pre-compiled)
+          - Zeek: ${{ env.ZEEK_VERSION }} ✅ (pre-compiled)
+          
+          Target Platform: Ubuntu 24.04 LTS x86_64
+          
+          Notes:
+          - All components are pre-compiled for Ubuntu 24.04
+          - No compilation required during installation
+          - Installation time: ~5-10 minutes
+          - Package includes all dependencies in depend/ directory
+          EOF
+          
+          cat > /tmp/nta-build/README.txt << EOF
+          NTA 离线部署包 - Ubuntu 24.04 LTS 专用
+          ==========================================
+          
+          ✅ 所有组件已预编译，无需在目标系统编译！
+          
+          系统要求:
+          - 操作系统: Ubuntu 24.04 LTS
+          - 架构: x86_64 (amd64)
+          - 内存: 建议 8GB+
+          - CPU: 建议 4核+
+          - 磁盘: 建议 50GB+
+          
+          部署步骤:
+          1. 解压部署包: tar -xzf nta-offline-deploy-*.tar.gz
+          2. 进入目录: cd nta-offline-deploy-*
+          3. 以 root 权限运行: sudo bash install.sh
+          4. 等待安装完成 (约 5-10 分钟)
+          5. 按照提示完成配置
+          
+          ⚡ 快速安装:
+          - PostgreSQL: 预编译，直接解压安装
+          - Redis: 预编译，直接解压安装
+          - Kafka: Java 二进制，直接解压
+          - Zeek: 预编译，直接解压安装
+          - 总安装时间: 约 5-10 分钟 (vs 原来的 30-60 分钟)
+          
+          默认账户:
+          - 用户名: admin
+          - 密码: admin123
+          
+          访问地址:
+          - Web界面: http://<服务器IP>:8090
+          - API服务: http://<服务器IP>:8080
+          
+          注意事项:
+          - 所有依赖已预编译，直接解压安装
+          - 仅需安装少量系统运行库 (libssl, libpcap等)
+          - Zeek 探针需要在 Web 界面手动配置后启动
+          - 首次登录后请立即修改默认密码
+          
+          故障排查:
+          - 查看安装日志: journalctl -xe
+          - 查看服务状态: systemctl status nta-server
+          - 查看应用日志: tail -f /var/log/nta/nta/nta-server.log
+          
+          卸载系统:
+          - 运行: sudo bash uninstall.sh
+          EOF
+          
+          cat > /tmp/nta-build/depend/README.txt << EOF
+          预编译依赖包目录
+          ==================
+          
+          本目录包含所有预编译的基础设施组件:
+          
+          1. postgresql-${{ env.POSTGRES_VERSION }}-ubuntu24.04-amd64.tar.gz
+             - PostgreSQL 数据库
+             - 预编译，直接解压到 /opt/postgres
+          
+          2. redis-${{ env.REDIS_VERSION }}-ubuntu24.04-amd64.tar.gz
+             - Redis 缓存服务
+             - 预编译，直接解压到 /opt/redis
+          
+          3. kafka-${{ env.KAFKA_VERSION }}-bin.tar.gz
+             - Kafka 消息队列 (含 Zookeeper)
+             - Java 二进制，直接解压到 /opt/kafka
+          
+          4. zeek-${{ env.ZEEK_VERSION }}-ubuntu24.04-amd64.tar.gz
+             - Zeek 网络流量分析引擎
+             - 预编译，直接解压到 /opt/zeek
+          
+          所有包均在 Ubuntu 24.04 x86_64 环境下编译，
+          确保与目标系统完全兼容。
+          EOF
 
-          log_warn() {
-              echo -e "${YELLOW}[WARN]${NC} $1"
-          }
-
-          log_error() {
-              echo -e "${RED}[ERROR]${NC} $1"
-          }
-
+      - name: Show package summary
+        run: |
+          echo "📦 Package Summary"
+          echo "=================="
           echo ""
-          log_warn "========================================="
-          log_warn "  NTA 卸载"
-          log_warn "========================================="
+          echo "Binaries:"
+          ls -lh /tmp/nta-build/bin/
           echo ""
-          log_warn "这将删除 NTA 系统和所有数据！"
-          read -p "是否继续？ (yes/no): " CONFIRM
-
-          if [ "$CONFIRM" != "yes" ]; then
-              log_error "已取消"
-              exit 1
-          fi
-
-          cd "$SCRIPT_DIR"
-
-          log_warn "正在停止服务..."
-          docker-compose down -v
-
-          log_warn "正在删除镜像..."
-          docker rmi nta-server:v1.0.0 nta-web:v1.0.0 postgres:15-alpine redis:7-alpine prom/prometheus:latest grafana/grafana:latest 2>/dev/null || true
-
+          echo "Dependencies:"
+          ls -lh /tmp/nta-build/depend/
           echo ""
-          log_warn "NTA 已卸载。Docker 和 Docker Compose 仍然保留。"
-          log_warn "要完全删除 Docker，请运行: sudo apt remove docker-ce docker-ce-cli (Ubuntu) or sudo yum remove docker-ce (CentOS)"
-          UNINSTALL_EOF
-          
-          chmod +x /tmp/nta-deploy/uninstall.sh
+          echo "Total size:"
+          du -sh /tmp/nta-build/
 
-      - name: Create README
-        run: |
-          cat > /tmp/nta-deploy/README.md <<'README_EOF'
-          # NTA 离线部署包
-
-          ## 系统要求
-
-          - **操作系统**: CentOS 7+, Ubuntu 20.04+, Anolis OS 8
-          - **架构**: x86_64 (64位)
-          - **CPU**: 2核及以上
-          - **内存**: 4GB及以上
-          - **磁盘**: 50GB及以上可用空间
-
-          ## 部署步骤
-
-          ### 1. 解压部署包
-          ```bash
-          unzip nta-offline-deploy-*.zip
-          cd nta-offline-deploy
-          ```
-
-          ### 2. 运行安装脚本
-          ```bash
-          sudo bash install.sh
-          ```
-
-          安装脚本会自动：
-          - 检测系统环境
-          - 安装 Docker 和 Docker Compose
-          - 加载所有镜像
-          - 配置防火墙
-          - 启动 NTA 系统
-
-          ### 3. 访问系统
-          ```
-          前端: http://YOUR_SERVER_IP/
-          Grafana: http://YOUR_SERVER_IP:3000
-          Prometheus: http://YOUR_SERVER_IP:9090
-          ```
-
-          默认登录账号: `admin` / `admin`
-
-          ## 常用命令
-
-          ### 查看服务状态
-          ```bash
-          docker-compose ps
-          ```
-
-          ### 查看日志
-          ```bash
-          docker-compose logs -f
-          docker-compose logs -f nta-server
-          ```
-
-          ### 重启服务
-          ```bash
-          docker-compose restart
-          ```
-
-          ### 停止服务
-          ```bash
-          docker-compose down
-          ```
-
-          ### 启动服务
-          ```bash
-          docker-compose up -d
-          ```
-
-          ## 卸载
-
-          ```bash
-          sudo bash uninstall.sh
-          ```
-
-          ## 目录结构
-
-          ```
-          nta-offline-deploy/
-          ├── install.sh              # 安装脚本
-          ├── uninstall.sh            # 卸载脚本
-          ├── docker-compose.yml      # Docker编排配置
-          ├── images/                 # Docker镜像文件
-          │   ├── nta-server.tar
-          │   ├── nta-web.tar
-          │   ├── postgres.tar
-          │   ├── redis.tar
-          │   ├── prometheus.tar
-          │   └── grafana.tar
-          ├── docker-packages/        # Docker离线安装包
-          │   ├── docker-24.0.7.tgz
-          │   └── docker-compose
-          ├── config/                 # 配置文件
-          │   └── nta.yaml.example
-          ├── deploy/                 # 部署配置
-          └── README.md
-          ```
-
-          ## 配置说明
-
-          主配置文件: `config/nta.yaml`
-
-          **重要配置项**:
-          - `server.host`: 监听地址 (默认 0.0.0.0)
-          - `server.port`: 监听端口 (默认 8080)
-          - `database.dsn`: 数据库连接串
-          - `security.jwt_secret`: JWT密钥 (自动生成)
-
-          ## 故障排查
-
-          ### 检查容器状态
-          ```bash
-          docker-compose ps
-          ```
-
-          ### 查看详细日志
-          ```bash
-          docker-compose logs --tail=100
-          ```
-
-          ### 健康检查
-          ```bash
-          curl http://localhost/health
-          curl http://localhost/api/v1/health
-          ```
-
-          ### 端口检查
-          ```bash
-          netstat -tulnp | grep -E '80|8080|5432|6379'
-          ```
-
-          ## 技术支持
-
-          - 文档: `/root/NTA/docs/`
-          - 问题反馈: GitHub Issues
-          README_EOF
-
-      - name: Copy deployment files
-        run: |
-          # Copy docker-compose.yml
-          cp docker-compose.yml /tmp/nta-deploy/
-          
-          # Copy config files
-          mkdir -p /tmp/nta-deploy/config
-          cat > /tmp/nta-deploy/config/nta.yaml.example <<'CONFIG_EOF'
-          server:
-            host: 0.0.0.0
-            port: 8080
-            mode: release
-
-          zeek:
-            log_dir: /var/spool/zeek
-            script_dir: /app/zeek-scripts
-            interface: eth0
-
-          database:
-            type: postgres
-            dsn: "host=nta-postgres user=nta password=nta_password dbname=nta port=5432 sslmode=disable"
-
-          redis:
-            addr: nta-redis:6379
-            password: ""
-            db: 0
-
-          security:
-            jwt_secret: "CHANGE_THIS_SECRET_KEY_MIN_32_CHARACTERS_LONG"
-            enable_tls: false
-            tls_cert_file: ""
-            tls_key_file: ""
-            rate_limit_requests: 100
-            rate_limit_window: 60
-            allowed_origins:
-              - "*"
-
-          detection:
-            scan:
-              threshold: 20
-              time_window: 300
-              min_fail_rate: 0.6
-            auth:
-              fail_threshold: 5
-              pth_window: 3600
-            ml:
-              enabled: true
-              contamination: 0.01
-
-          threat_intel:
-            sources:
-              - name: threatfox
-                url: https://threatfox-api.abuse.ch/api/v1/
-                api_key: ""
-                enabled: true
-            update_interval: 3600
-            local_feed_path: /app/config/threat_feed.json
-
-          license:
-            license_file: /app/config/license.key
-            public_key_file: /app/config/public.pem
-
-          backup:
-            enabled: false
-            backup_dir: /app/backups
-            interval_hours: 24
-            retention_days: 7
-          CONFIG_EOF
-          
-          # Also copy other config files from source repo
-          if [ -f config/threat_feed.json ]; then
-              cp config/threat_feed.json /tmp/nta-deploy/config/
-          fi
-          if [ -f config/apt_iocs.json ]; then
-              cp config/apt_iocs.json /tmp/nta-deploy/config/
-          fi
-          
-          # Copy deploy files
-          mkdir -p /tmp/nta-deploy/deploy
-          cp -r deploy/* /tmp/nta-deploy/deploy/ 2>/dev/null || true
-
-      - name: Organize package structure
-        run: |
-          mkdir -p /tmp/nta-deploy/images
-          mkdir -p /tmp/nta-deploy/docker-packages
-          
-          # Move application images
-          mv /tmp/nta-server.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-kafka-consumer.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-web.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-zeek.tar /tmp/nta-deploy/images/
-          
-          # Move microservices images
-          mv /tmp/nta-auth-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-asset-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-detection-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-alert-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-report-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-notification-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-probe-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-intel-service.tar /tmp/nta-deploy/images/
-          mv /tmp/nta-traefik.tar /tmp/nta-deploy/images/
-          
-          # Move infrastructure images
-          mv /tmp/postgres.tar /tmp/nta-deploy/images/
-          mv /tmp/redis.tar /tmp/nta-deploy/images/
-          mv /tmp/prometheus.tar /tmp/nta-deploy/images/
-          mv /tmp/grafana.tar /tmp/nta-deploy/images/
-          mv /tmp/zookeeper.tar /tmp/nta-deploy/images/
-          mv /tmp/kafka.tar /tmp/nta-deploy/images/
-          mv /tmp/flink.tar /tmp/nta-deploy/images/
-          mv /tmp/consul.tar /tmp/nta-deploy/images/
-          mv /tmp/jaeger.tar /tmp/nta-deploy/images/
-          
-          # Move docker packages
-          mv /tmp/docker-packages/* /tmp/nta-deploy/docker-packages/
-
-      - name: Create deployment package
+      - name: Create deployment archive
         run: |
           cd /tmp
-          PACKAGE_NAME="nta-offline-deploy-${{ env.VERSION }}-$(date +%Y%m%d)"
-          mv nta-deploy "$PACKAGE_NAME"
-          zip -r "${PACKAGE_NAME}.zip" "$PACKAGE_NAME"
+          tar -czf nta-offline-deploy-${{ env.GIT_COMMIT }}-$(date +%Y%m%d).tar.gz nta-build/
           
           # Calculate checksum
-          sha256sum "${PACKAGE_NAME}.zip" > "${PACKAGE_NAME}.zip.sha256"
+          sha256sum nta-offline-deploy-${{ env.GIT_COMMIT }}-$(date +%Y%m%d).tar.gz > nta-offline-deploy-${{ env.GIT_COMMIT }}-$(date +%Y%m%d).tar.gz.sha256
           
-          # Get package size
-          PACKAGE_SIZE=$(du -h "${PACKAGE_NAME}.zip" | cut -f1)
-          echo "PACKAGE_NAME=${PACKAGE_NAME}" >> $GITHUB_ENV
-          echo "PACKAGE_SIZE=${PACKAGE_SIZE}" >> $GITHUB_ENV
+          # Show package info
+          echo "📦 Final Package:"
+          ls -lh nta-offline-deploy-*.tar.gz
+          echo ""
+          echo "🔐 Checksum:"
+          cat nta-offline-deploy-*.tar.gz.sha256
 
-      - name: Upload deployment package
+      - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ env.PACKAGE_NAME }}
+          name: nta-offline-deploy-ubuntu-24.04-${{ env.GIT_COMMIT }}
           path: |
-            /tmp/${{ env.PACKAGE_NAME }}.zip
-            /tmp/${{ env.PACKAGE_NAME }}.zip.sha256
+            /tmp/nta-offline-deploy-*.tar.gz
+            /tmp/nta-offline-deploy-*.sha256
           retention-days: 30
-
-      - name: Generate deployment summary
-        run: |
-          cat >> $GITHUB_STEP_SUMMARY <<EOF
-          ## 🎉 NTA 离线部署包构建完成
-
-          ### 📦 包信息
-          - **版本**: ${{ env.VERSION }}
-          - **构建时间**: ${{ env.BUILD_TIME }}
-          - **Git Commit**: ${{ env.GIT_COMMIT }}
-          - **包大小**: ${{ env.PACKAGE_SIZE }}
-          - **包名称**: ${{ env.PACKAGE_NAME }}.zip
-
-          ### 📥 下载地址
-          在 Artifacts 中下载: \`${{ env.PACKAGE_NAME }}\`
-
-          ### 🚀 部署说明
-
-          1. 下载并解压部署包
-          \`\`\`bash
-          unzip ${{ env.PACKAGE_NAME }}.zip
-          cd ${{ env.PACKAGE_NAME }}
-          \`\`\`
-
-          2. 运行安装脚本
-          \`\`\`bash
-          sudo bash install.sh
-          \`\`\`
-
-          3. 访问系统
-          \`\`\`
-          http://YOUR_SERVER_IP/
-          \`\`\`
-
-          ### 📋 包含内容
-          - ✅ Docker 24.0.7 离线安装包
-          - ✅ Docker Compose 2.23.0
-          - ✅ NTA 后端镜像 (nta-server)
-          - ✅ NTA 前端镜像 (nta-web)
-          - ✅ PostgreSQL 15 镜像
-          - ✅ Redis 7 镜像
-          - ✅ Prometheus 镜像
-          - ✅ Grafana 镜像
-          - ✅ 一键安装脚本
-          - ✅ 配置文件模板
-          - ✅ 部署文档
-
-          ### 🖥️ 支持平台
-          - CentOS 7+
-          - Ubuntu 20.04+
-          - Anolis OS (龙蜥) 8
-          - x86_64 架构
-
-          ### 📊 系统要求
-          - CPU: 2核+
-          - 内存: 4GB+
-          - 磁盘: 50GB+
-          EOF

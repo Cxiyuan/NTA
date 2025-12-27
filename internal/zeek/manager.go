@@ -48,16 +48,17 @@ func (m *Manager) UpdateProbe(ctx context.Context, probe *models.ZeekProbe) erro
 }
 
 func (m *Manager) GetProbeStatus(ctx context.Context, probeID string) (string, error) {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "nta-zeek", "zeekctl", "status")
+	cmd := exec.CommandContext(ctx, "systemctl", "is-active", "nta-zeek")
 	output, err := cmd.CombinedOutput()
-	if err != nil {
-		return "error", err
+	
+	status := strings.TrimSpace(string(output))
+	if status == "active" {
+		return "running", nil
+	} else if status == "inactive" || status == "failed" {
+		return "stopped", nil
 	}
 	
-	if strings.Contains(string(output), "running") {
-		return "running", nil
-	}
-	return "stopped", nil
+	return "unknown", err
 }
 
 func (m *Manager) StartProbe(ctx context.Context, probeID string) error {
@@ -66,7 +67,14 @@ func (m *Manager) StartProbe(ctx context.Context, probeID string) error {
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", "restart", "nta-zeek")
+	// Update Zeek configuration
+	if err := m.updateZeekConfig(&probe); err != nil {
+		m.logger.Errorf("Failed to update zeek config: %v", err)
+		return err
+	}
+
+	// Start zeek service
+	cmd := exec.CommandContext(ctx, "systemctl", "start", "nta-zeek")
 	if err := cmd.Run(); err != nil {
 		m.logger.Errorf("Failed to start zeek probe: %v", err)
 		probe.Status = "error"
@@ -78,13 +86,34 @@ func (m *Manager) StartProbe(ctx context.Context, probeID string) error {
 	return m.db.Save(&probe).Error
 }
 
+func (m *Manager) updateZeekConfig(probe *models.ZeekProbe) error {
+	iface := probe.Interface
+	if iface == "" {
+		iface = "eth0"
+	}
+	
+	// Update node.cfg
+	nodeConfig := fmt.Sprintf(`[zeek]
+type=standalone
+host=localhost
+interface=%s
+`, iface)
+	
+	if probe.BPFFilter != "" {
+		nodeConfig += fmt.Sprintf("bpf_filter=%s\n", probe.BPFFilter)
+	}
+	
+	cmd := exec.Command("sh", "-c", fmt.Sprintf("echo '%s' > /opt/zeek/etc/node.cfg", nodeConfig))
+	return cmd.Run()
+}
+
 func (m *Manager) StopProbe(ctx context.Context, probeID string) error {
 	var probe models.ZeekProbe
 	if err := m.db.Where("probe_id = ?", probeID).First(&probe).Error; err != nil {
 		return err
 	}
 
-	cmd := exec.CommandContext(ctx, "docker", "exec", "nta-zeek", "zeekctl", "stop")
+	cmd := exec.CommandContext(ctx, "systemctl", "stop", "nta-zeek")
 	if err := cmd.Run(); err != nil {
 		m.logger.Errorf("Failed to stop zeek probe: %v", err)
 		return err
@@ -95,7 +124,7 @@ func (m *Manager) StopProbe(ctx context.Context, probeID string) error {
 }
 
 func (m *Manager) GetProbeStats(ctx context.Context, probeID string) (map[string]interface{}, error) {
-	cmd := exec.CommandContext(ctx, "docker", "exec", "nta-zeek", "zeekctl", "netstats")
+	cmd := exec.CommandContext(ctx, "/opt/zeek/bin/zeekctl", "netstats")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, err
@@ -114,13 +143,18 @@ func (m *Manager) UpdateProbeConfig(ctx context.Context, probeID string, config 
 		return err
 	}
 
-	return m.db.Model(&models.ZeekProbe{}).
+	// Update database
+	if err := m.db.Model(&models.ZeekProbe{}).
 		Where("probe_id = ?", probeID).
 		Updates(map[string]interface{}{
 			"interface":  config["interface"],
 			"bpf_filter": config["bpf_filter"],
 			"config":     string(configJSON),
-		}).Error
+		}).Error; err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (m *Manager) GetLogs(ctx context.Context, probeID string, logType string, limit int) ([]models.ZeekLog, error) {
@@ -218,11 +252,26 @@ func (m *Manager) DisableScript(ctx context.Context, probeID string, scriptName 
 }
 
 func (m *Manager) RestartProbe(ctx context.Context, probeID string) error {
-	if err := m.StopProbe(ctx, probeID); err != nil {
+	var probe models.ZeekProbe
+	if err := m.db.Where("probe_id = ?", probeID).First(&probe).Error; err != nil {
 		return err
 	}
-	time.Sleep(2 * time.Second)
-	return m.StartProbe(ctx, probeID)
+	
+	// Update configuration
+	if err := m.updateZeekConfig(&probe); err != nil {
+		m.logger.Errorf("Failed to update zeek config: %v", err)
+		return err
+	}
+	
+	// Restart service
+	cmd := exec.CommandContext(ctx, "systemctl", "restart", "nta-zeek")
+	if err := cmd.Run(); err != nil {
+		m.logger.Errorf("Failed to restart zeek probe: %v", err)
+		return err
+	}
+	
+	probe.Status = "running"
+	return m.db.Save(&probe).Error
 }
 
 func (m *Manager) GetAvailableScripts() []map[string]string {
@@ -252,7 +301,7 @@ func (m *Manager) ImportLog(ctx context.Context, log *models.ZeekLog) error {
 }
 
 func (m *Manager) GetProbeInterfaces() ([]string, error) {
-	cmd := exec.Command("docker", "exec", "nta-zeek", "ip", "link", "show")
+	cmd := exec.Command("ip", "link", "show")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return nil, err
@@ -265,8 +314,8 @@ func (m *Manager) GetProbeInterfaces() ([]string, error) {
 			parts := strings.Split(line, ": ")
 			if len(parts) > 1 {
 				ifname := strings.TrimSpace(parts[1])
-				if !strings.HasPrefix(ifname, "lo") {
-					interfaces = append(interfaces, strings.Split(ifname, ":")[0])
+				if !strings.HasPrefix(ifname, "lo") && !strings.HasPrefix(ifname, "docker") && !strings.HasPrefix(ifname, "br-") {
+					interfaces = append(interfaces, strings.Split(ifname, "@")[0])
 				}
 			}
 		}
